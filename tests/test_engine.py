@@ -52,6 +52,7 @@ import Layout from "./layout";
 
 [Read more](./details.md)
 Contact <https://example.com>.
+Use `List<string>` and Map<string, int> for collections.
 """
     result = _clean_markdown(source)
 
@@ -62,6 +63,8 @@ Contact <https://example.com>.
     assert "Read more" in result
     assert "./details.md" not in result
     assert "<https://example.com>" in result
+    assert "`List<string>`" in result
+    assert "Map<string, int>" in result
 
 
 def test_mcp_operations_are_exact_and_search_respects_full_payload_budget(tmp_path):

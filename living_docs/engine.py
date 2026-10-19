@@ -241,10 +241,18 @@ def _clean_markdown(text: str) -> str:
                 break
             closing_end = opening.end() + closing.end()
             line = line[:opening.start()] + line[closing_end:]
-        line = re.sub(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)", "", line)
-        line = re.sub(r"\[([^\]]+)\]\((?!https?://)[^)]+\)", r"\1", line)
-        line = re.sub(r"<(?!https?://)/?[A-Za-z][^>]*>", "", line)
-        output.append(line)
+        parts = re.split(r"(`[^`]+`)", line)
+        cleaned_parts = []
+        for part in parts:
+            if part.startswith("`") and part.endswith("`"):
+                cleaned_parts.append(part)
+            else:
+                p = re.sub(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)", "", part)
+                p = re.sub(r"\[([^\]]+)\]\((?!https?://)[^)]+\)", r"\1", p)
+                tag_pattern = r"</[A-Za-z][A-Za-z0-9_.:-]*\s*>|(?<![A-Za-z0-9_])<(?!https?://)[A-Za-z][A-Za-z0-9_.:-]*(?:\s+[^>]*)?/?>"
+                p = re.sub(tag_pattern, "", p)
+                cleaned_parts.append(p)
+        output.append("".join(cleaned_parts))
 
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
     return cleaned + ("\n" if cleaned else "")
