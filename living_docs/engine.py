@@ -313,7 +313,8 @@ def build_artifacts(
     sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     manifest = _manifest(sections, project_name)
     small_header = f"# {project_name} — compact reference\n\n"
-    if small_token_budget < 1 or count_tokens(small_header, encoding_name=encoding_name) > small_token_budget:
+    header_tokens = count_tokens(small_header, encoding_name=encoding_name)
+    if small_token_budget < 1 or header_tokens > small_token_budget:
         raise ValueError("small_token_budget is too small for the compact-reference header")
 
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -342,22 +343,17 @@ def build_artifacts(
     (output_directory / "llms.txt").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
 
     small_sections: list[Section] = []
+    accumulated_tokens = header_tokens
     priority_sections = sorted(sections, key=lambda section: (section.kind != "api", section.path, section.id))
     for section in priority_sections:
-        candidate_sections = [*small_sections, section]
-        candidate_text = small_header + "\n".join(item.content.rstrip() for item in candidate_sections) + "\n"
-        if count_tokens(candidate_text, encoding_name=encoding_name) <= small_token_budget:
-            small_sections.append(section)
+        if accumulated_tokens + section.tokens + 2 <= small_token_budget:
+            candidate_text = small_header + "\n".join(item.content.rstrip() for item in (*small_sections, section)) + "\n"
+            exact_tokens = count_tokens(candidate_text, encoding_name=encoding_name)
+            if exact_tokens <= small_token_budget:
+                small_sections.append(section)
+                accumulated_tokens = exact_tokens
     small_sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     small_text = small_header + "\n".join(section.content.rstrip() for section in small_sections) + "\n"
-    (output_directory / "llms-small.txt").write_text(small_text, encoding="utf-8")
-    (output_directory / "llms-full.txt").write_text(
-        f"# {project_name} — full reference\n\n"
-        + "\n".join(section.content.rstrip() for section in sections)
-        + "\n",
-        encoding="utf-8",
-    )
-    return manifest
     (output_directory / "llms-small.txt").write_text(small_text, encoding="utf-8")
     (output_directory / "llms-full.txt").write_text(
         f"# {project_name} — full reference\n\n"
@@ -479,8 +475,11 @@ class DocumentationEngine:
         scored.sort(key=lambda item: item[0], reverse=True)
 
         result = {"results": [], "token_count": 0}
+        current_tokens = _payload_token_count(result, self.encoding_name)
         for _, doc_id in scored:
             s = self._sections_by_id[doc_id]
+            if current_tokens + s.get("tokens", 0) > max_tokens + 50:
+                continue
             candidate = {
                 "id": s["id"],
                 "title": s["title"],
@@ -489,11 +488,12 @@ class DocumentationEngine:
                 "content": s["content"],
             }
             trial = {"results": [*result["results"], candidate], "token_count": 0}
-            trial["token_count"] = _payload_token_count(trial, self.encoding_name)
-            if trial["token_count"] > max_tokens:
+            trial_tokens = _payload_token_count(trial, self.encoding_name)
+            if trial_tokens > max_tokens:
                 continue
             result = trial
-        result["token_count"] = _payload_token_count(result, self.encoding_name)
+            current_tokens = trial_tokens
+        result["token_count"] = current_tokens
         return result
 
     def get_api_spec(self, endpoint_path: str, method: str) -> dict[str, Any]:
