@@ -4,6 +4,7 @@ import difflib
 import json
 import re
 import sqlite3
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -386,12 +387,13 @@ class DocumentationEngine:
         self.embedder: Embedder = embedder if embedder is not None else HashingEmbedder()
         self.encoding_name = encoding_name
         self._sections_by_id = {s["id"]: s for s in sections}
+        self._lock = threading.Lock()
         self._by_api = {
             (section["path"], section["method"]): section
             for section in sections
             if section.get("kind") == "api" and section.get("method")
         }
-        self._database = sqlite3.connect(":memory:")
+        self._database = sqlite3.connect(":memory:", check_same_thread=False)
         self._database.create_function("cosine_similarity", 2, cosine_similarity)
         self._database.execute(
             "CREATE VIRTUAL TABLE docs USING fts5(id, title, path, description, content)"
@@ -466,28 +468,32 @@ class DocumentationEngine:
 
         bm25_ranks: dict[str, int] = {}
         terms = _SEARCH_WORDS.findall(query)
-        if terms:
-            expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
-            try:
-                rows = self._database.execute(
-                    "SELECT id, bm25(docs) FROM docs WHERE docs MATCH ? ORDER BY bm25(docs) ASC LIMIT 50",
-                    (expression,),
-                ).fetchall()
-                for rank, (doc_id, _) in enumerate(rows, start=1):
-                    bm25_ranks[doc_id] = rank
-            except sqlite3.OperationalError:
-                pass
-
-        vector_ranks: dict[str, int] = {}
+        query_vec: bytes | None = None
         if self.embedder is not None:
             query_vec = pack_vector(self.embedder.embed(query))
-            vec_rows = self._database.execute(
-                "SELECT id, cosine_similarity(vector, ?) AS sim FROM doc_vectors ORDER BY sim DESC LIMIT 50",
-                (query_vec,),
-            ).fetchall()
-            for rank, (doc_id, sim) in enumerate(vec_rows, start=1):
-                if sim > 0.0:
-                    vector_ranks[doc_id] = rank
+
+        vector_ranks: dict[str, int] = {}
+        with self._lock:
+            if terms:
+                expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
+                try:
+                    rows = self._database.execute(
+                        "SELECT id, bm25(docs) FROM docs WHERE docs MATCH ? ORDER BY bm25(docs) ASC LIMIT 50",
+                        (expression,),
+                    ).fetchall()
+                    for rank, (doc_id, _) in enumerate(rows, start=1):
+                        bm25_ranks[doc_id] = rank
+                except sqlite3.OperationalError:
+                    pass
+
+            if query_vec is not None:
+                vec_rows = self._database.execute(
+                    "SELECT id, cosine_similarity(vector, ?) AS sim FROM doc_vectors ORDER BY sim DESC LIMIT 50",
+                    (query_vec,),
+                ).fetchall()
+                for rank, (doc_id, sim) in enumerate(vec_rows, start=1):
+                    if sim > 0.0:
+                        vector_ranks[doc_id] = rank
 
         all_candidate_ids = set(bm25_ranks.keys()) | set(vector_ranks.keys())
         if not all_candidate_ids:

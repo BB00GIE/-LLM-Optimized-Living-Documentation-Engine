@@ -194,6 +194,24 @@ def test_precomputed_vectors_persisted_in_index(tmp_path):
     assert res["results"]
 
 
+def test_concurrent_multithreaded_search(tmp_path):
+    import concurrent.futures
+
+    output = tmp_path / "out_threads"
+    build_artifacts(output, openapi_files=[Path("examples/openapi.yaml")])
+    engine = DocumentationEngine.from_index(output / "docs-index.json")
+
+    def run_search(query: str):
+        return engine.search_docs(query, max_tokens=500)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        queries = ["tasks", "create", "api", "limit", "task_id"] * 5
+        results = list(executor.map(run_search, queries))
+
+    assert len(results) == 25
+    assert all("results" in r for r in results)
+
+
 def test_mcp_stdio_exposes_manifest_and_tools(tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
