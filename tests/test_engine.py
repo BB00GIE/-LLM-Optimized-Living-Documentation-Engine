@@ -168,6 +168,32 @@ def test_multi_tokenizer_o200k(tmp_path):
     )
 
 
+def test_precomputed_vectors_persisted_in_index(tmp_path):
+    output = tmp_path / "out_vectors"
+    build_artifacts(
+        output_directory=output,
+        openapi_files=[Path("examples/openapi.yaml")],
+        markdown_directories=[Path("examples/docs")],
+    )
+    index_data = json.loads((output / "docs-index.json").read_text(encoding="utf-8"))
+    assert "vectors" in index_data
+    assert len(index_data["vectors"]) == len(index_data["sections"])
+
+    # Initializing from index should load vectors directly without needing an embedder to compute them
+    class FailingEmbedder:
+        dimension = 128
+        def embed(self, text: str):
+            raise AssertionError("embed should not be called when precomputed vectors are available")
+        def embed_batch(self, texts):
+            raise AssertionError("embed_batch should not be called")
+
+    engine = DocumentationEngine.from_index(output / "docs-index.json", embedder=FailingEmbedder())
+    # Should successfully search with query embedding
+    FailingEmbedder.embed = lambda self, text: [0.1] * 128
+    res = engine.search_docs("quickstart", max_tokens=500)
+    assert res["results"]
+
+
 def test_mcp_stdio_exposes_manifest_and_tools(tmp_path):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client

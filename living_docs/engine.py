@@ -302,6 +302,7 @@ def build_artifacts(
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
+    embedder: Embedder | None = None,
 ) -> dict[str, Any]:
     sections: list[Section] = []
     for path in openapi_files or []:
@@ -317,11 +318,18 @@ def build_artifacts(
     if small_token_budget < 1 or header_tokens > small_token_budget:
         raise ValueError("small_token_budget is too small for the compact-reference header")
 
+    active_embedder = embedder or HashingEmbedder()
+    vectors: dict[str, str] = {}
+    for section in sections:
+        embed_text = f"{section.title}\n{section.description}\n{section.content}"
+        vectors[section.id] = pack_vector(active_embedder.embed(embed_text)).hex()
+
     output_directory.mkdir(parents=True, exist_ok=True)
     index = {
         "manifest": manifest,
         "sections": [asdict(section) for section in sections],
         "encoding_name": encoding_name,
+        "vectors": vectors,
     }
     (output_directory / "docs-index.json").write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + "\n",
@@ -371,6 +379,7 @@ class DocumentationEngine:
         manifest: dict[str, Any],
         embedder: Embedder | None = None,
         encoding_name: str = "cl100k_base",
+        vectors: dict[str, bytes] | None = None,
     ):
         self.sections = sections
         self.manifest = manifest
@@ -399,9 +408,17 @@ class DocumentationEngine:
         )
 
         vector_rows = []
-        for s in sections:
-            embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
-            vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
+        if vectors:
+            for s in sections:
+                if s["id"] in vectors:
+                    vector_rows.append((s["id"], vectors[s["id"]]))
+                else:
+                    embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
+                    vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
+        else:
+            for s in sections:
+                embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
+                vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
         self._database.executemany("INSERT INTO doc_vectors VALUES (?, ?)", vector_rows)
 
     @classmethod
@@ -413,7 +430,17 @@ class DocumentationEngine:
     ) -> DocumentationEngine:
         index = json.loads(index_path.read_text(encoding="utf-8"))
         actual_encoding = encoding_name or index.get("encoding_name", "cl100k_base")
-        return cls(index["sections"], index["manifest"], embedder=embedder, encoding_name=actual_encoding)
+        raw_vectors = index.get("vectors")
+        vectors: dict[str, bytes] | None = None
+        if raw_vectors:
+            vectors = {doc_id: bytes.fromhex(hex_str) for doc_id, hex_str in raw_vectors.items()}
+        return cls(
+            index["sections"],
+            index["manifest"],
+            embedder=embedder,
+            encoding_name=actual_encoding,
+            vectors=vectors,
+        )
 
     def search_docs(
         self,
