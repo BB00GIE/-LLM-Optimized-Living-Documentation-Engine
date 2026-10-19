@@ -56,16 +56,13 @@ class HashingEmbedder:
         if not tokens:
             return vec
 
-        # Bag of words + character 3-grams for subword semantics
-        features: list[str] = list(tokens)
         for token in tokens:
+            idx, sign = self._hash_token(token)
+            vec[idx] += float(sign)
             if len(token) >= 3:
                 for i in range(len(token) - 2):
-                    features.append(token[i : i + 3])
-
-        for feature in features:
-            idx, sign = self._hash_token(feature)
-            vec[idx] += float(sign)
+                    sub_idx, sub_sign = self._hash_token(token[i : i + 3])
+                    vec[sub_idx] += float(sub_sign)
 
         norm = math.sqrt(sum(val * val for val in vec))
         if norm > 0.0:

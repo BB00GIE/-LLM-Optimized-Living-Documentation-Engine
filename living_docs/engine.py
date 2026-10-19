@@ -56,9 +56,16 @@ def _read_openapi(path: Path) -> dict[str, Any]:
     return document
 
 
-def _resolve_local_refs(value: Any, document: dict[str, Any], seen: frozenset[str] = frozenset()) -> Any:
+def _resolve_local_refs(
+    value: Any,
+    document: dict[str, Any],
+    seen: frozenset[str] = frozenset(),
+    depth: int = 0,
+) -> Any:
+    if depth > 64:
+        raise ValueError("Exceeded maximum OpenAPI reference recursion depth (64)")
     if isinstance(value, list):
-        return [_resolve_local_refs(item, document, seen) for item in value]
+        return [_resolve_local_refs(item, document, seen, depth + 1) for item in value]
     if not isinstance(value, dict):
         return value
 
@@ -76,10 +83,10 @@ def _resolve_local_refs(value: Any, document: dict[str, Any], seen: frozenset[st
                 if not isinstance(target, dict) or part not in target:
                     raise ValueError(f"OpenAPI reference does not exist: {reference}")
                 target = target[part]
-            result.update(_resolve_local_refs(target, document, seen | {reference}))
+            result.update(_resolve_local_refs(target, document, seen | {reference}, depth + 1))
 
     result.update({
-        key: _resolve_local_refs(item, document, seen)
+        key: _resolve_local_refs(item, document, seen, depth + 1)
         for key, item in value.items()
         if key != "$ref"
     })

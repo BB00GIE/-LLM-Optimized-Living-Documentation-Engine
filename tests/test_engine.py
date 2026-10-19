@@ -11,6 +11,7 @@ from living_docs.embeddings import HashingEmbedder, cosine_similarity, pack_vect
 from living_docs.engine import (
     DocumentationEngine,
     _clean_markdown,
+    _resolve_local_refs,
     build_artifacts,
     count_tokens,
 )
@@ -35,6 +36,21 @@ def test_builds_static_artifacts_and_resolves_schema_refs(tmp_path):
     assert "import { Callout }" not in full
     assert "The `title` field is required." in full
     assert count_tokens((output / "llms-small.txt").read_text(encoding="utf-8")) <= 200
+
+
+def test_openapi_ref_recursion_depth_guard():
+    # Construct a chained schema with 70 levels of local references
+    doc: dict = {"components": {"schemas": {}}}
+    for i in range(70):
+        doc["components"]["schemas"][f"Node{i}"] = {
+            "$ref": f"#/components/schemas/Node{i+1}"
+        }
+    doc["components"]["schemas"]["Node70"] = {"type": "string"}
+
+    import pytest
+
+    with pytest.raises(ValueError, match="recursion depth"):
+        _resolve_local_refs({"$ref": "#/components/schemas/Node0"}, doc)
 
 
 def test_markdown_cleanup_preserves_fenced_examples_and_strips_layout_noise():
