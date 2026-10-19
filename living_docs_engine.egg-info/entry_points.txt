@@ -1,0 +1,2 @@
+[console_scripts]
+living-docs = living_docs.cli:main

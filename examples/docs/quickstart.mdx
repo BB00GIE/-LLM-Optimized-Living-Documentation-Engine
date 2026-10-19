@@ -1,0 +1,22 @@
+---
+title: Quickstart
+---
+
+import { Callout } from "./components";
+
+# Quickstart
+
+Create a task by sending a JSON request to `POST /api/tasks`.
+
+<Callout type="note">
+The `title` field is required.
+</Callout>
+
+```json
+{
+  "title": "Read the docs",
+  "completed": false
+}
+```
+
+[API reference](./api/tasks.md)

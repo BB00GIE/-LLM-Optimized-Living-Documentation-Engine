@@ -1,0 +1,6 @@
+mcp<2,>=1.0
+PyYAML>=6.0
+tiktoken>=0.7
+
+[dev]
+pytest>=8.0

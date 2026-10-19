@@ -2,7 +2,7 @@
 
 TL;DR — A documentation architecture and runtime that transforms human‑centric docs and API specs into compact, machine‑native artifacts (static /llms.txt files and a Model Context Protocol (MCP) server) so LLMs and agentic systems can discover, reason about, and call APIs with minimal token overhead.
 
-Status: Spec / design phase — implementation not yet started. This repository currently contains the project specification and design documents.
+Status: Early implementation — the first local build and MCP stdio vertical slice is available.
 
 ## Why this exists
 
@@ -22,12 +22,14 @@ This project defines a pipeline and runtime to produce documentation optimized f
 - MCP Server (Model Context Protocol):
   - Resource: `docs://manifest` (index + token metrics)
   - Tools: `search_docs(query, max_tokens)`, `get_api_spec(endpoint_path, method)` (deterministic, schema-first)
-- AST-aware ingestion and chunking to avoid truncated schemas and reduce hallucinations.
+- Whole-operation API retrieval and complete-document Markdown results; oversized search results are omitted rather than truncated.
+
+The current implementation ingests OpenAPI 3.x and Markdown/MDX. Language AST extraction, dense-vector retrieval, and HTTP transports remain planned work.
 
 ## High‑level Architecture
 
-Sources (OpenAPI, Markdown repos, AST/docstrings) → Ingestion → IR → Transformation & Compression
-(Noise stripping, signature extraction, token-budgeting, AST-aware chunking) → Dual outputs:
+Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & Compression
+(Noise stripping, signature extraction, token-budgeting) → Dual outputs:
 - Static files (`/llms*.txt`) for fast context ingestion
 - MCP server for interactive, token-budgeted exploration
 
@@ -50,48 +52,52 @@ Sources (OpenAPI, Markdown repos, AST/docstrings) → Ingestion → IR → Trans
   ]
 }
 
-## Why this is different
+## Current retrieval and tokenization
 
-- Path-indexed + hybrid search (BM25 + dense vectors) for exactness + robustness
-- AST-aware chunking so function signatures and JSON schemas are never split
-- Token-budgeted outputs to match real model tokenizers (`cl100k_base`, `o200k_base`)
+- SQLite FTS5/BM25 search plus exact path-and-method API lookup
+- OpenAPI operations and Markdown documents remain whole during retrieval
+- Exact local token counts use `cl100k_base`; dense vectors and `o200k_base` support are future extensions
 
 ## Roadmap & Milestones
 
-### Short term
-- Finalize spec and canonical `/llms.txt` format
-- Implement ingestion prototypes for OpenAPI and Markdown
-- Build AST-aware chunker and token-budgeting utilities
+### Implemented
+- OpenAPI 3.x and Markdown/MDX ingestion
+- Static artifacts and MCP stdio server with manifest, search, and exact API lookup
+- Token-budgeted whole-section search and compact-reference output
 
-### Medium term
-- Implement MCP server (stdio + SSE transports)
-- Implement hybrid search with sqlite-vec / DuckDB
-- Integrations: example client / simple agent demo
+### Next
+- Finalize the canonical `/llms.txt` format
+- Add TypeScript/Python AST extraction and language-aware semantic chunking
+- Add dense-vector retrieval, HTTP transport, and agent evaluation
 
 ### Long term
 - Ecosystem: exporters (SDKs), adapters for common docs stacks (mkdocs, swagger), and production deployment patterns
 
 ## Suggested Tech Stack (provisional)
 
-- Runtime: Python 3.11+, FastAPI, Pydantic v2
-- Parsing: tree-sitter, openapi-parser, markdown pipeline
-- Storage & search: SQLite + sqlite-vec / DuckDB
+- Runtime: Python 3.11+ and the official MCP SDK
+- Parsing: PyYAML for OpenAPI YAML, built-in JSON and Markdown/MDX processing
+- Storage & search: SQLite FTS5/BM25 (dense-vector storage remains planned)
 - Protocol: official MCP SDK for Python
-- Tokenization: tiktoken
+- Tokenization: tiktoken (`cl100k_base`)
 
 ## How to contribute
 
-- Read the spec (this repo) and comment on open design questions
-- Prototype ingestion for one source type (OpenAPI or Markdown)
-- Implement a test for token-efficiency and schema preservation
-- Open issues and PRs for small, incremental improvements — start with tests/examples
+- Python 3.11+ is required.
+- Install the project and development dependencies with `python -m pip install -e ".[dev]"`.
+- Build artifacts from the included sample sources:
 
-## Next steps I can take for you
+  ```powershell
+  living-docs build --openapi examples\openapi.yaml --markdown examples\docs --output build --project-name "Example Tasks API"
+  ```
 
-- Shorten or expand the README for a specific audience (developer vs product)
-- Extract a one‑page API for `/llms.txt` and a sample `/llms-small.txt`
-- Create an initial project skeleton (FastAPI MCP server + sample ingestion) and open a PR (I will ask you to confirm repo/branch before making changes)
-- Convert parts of your spec into executable test cases (token benchmarks, MCP conformance)
+  This creates `llms.txt`, `llms-small.txt`, `llms-full.txt`, and `docs-index.json`.
+- Start the MCP server over stdio with `living-docs serve --index build\docs-index.json`.
+- Run the tests with `python -m pytest`.
+
+The initial slice supports OpenAPI 3.x JSON/YAML files (including local `$ref`s), Markdown/MDX cleanup, `cl100k_base` token counts, static output generation, SQLite FTS5/BM25 search, and the `docs://manifest`, `search_docs`, and `get_api_spec` MCP surfaces.
+
+Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); dense-vector retrieval, TypeScript/Python AST extraction, HTTP/SSE serving, and agent evaluation are not implemented yet.
 
 ## License & Contact
 
