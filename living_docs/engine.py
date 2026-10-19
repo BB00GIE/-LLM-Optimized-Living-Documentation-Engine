@@ -12,10 +12,23 @@ from urllib.parse import quote
 import tiktoken
 import yaml
 
+from living_docs.embeddings import (
+    Embedder,
+    HashingEmbedder,
+    cosine_similarity,
+    pack_vector,
+)
 
-_TOKENIZER = tiktoken.get_encoding("cl100k_base")
+
+_TOKENIZERS: dict[str, tiktoken.Encoding] = {}
 _METHODS = ("get", "post", "put", "patch", "delete")
 _SEARCH_WORDS = re.compile(r"[A-Za-z0-9_./{}-]+")
+
+
+def get_tokenizer(encoding_name: str = "cl100k_base") -> tiktoken.Encoding:
+    if encoding_name not in _TOKENIZERS:
+        _TOKENIZERS[encoding_name] = tiktoken.get_encoding(encoding_name)
+    return _TOKENIZERS[encoding_name]
 
 
 @dataclass(frozen=True)
@@ -30,8 +43,8 @@ class Section:
     method: str | None = None
 
 
-def count_tokens(text: str) -> int:
-    return len(_TOKENIZER.encode(text))
+def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
+    return len(get_tokenizer(encoding_name).encode(text))
 
 
 def _read_openapi(path: Path) -> dict[str, Any]:
@@ -139,7 +152,7 @@ def _render_operation(path: str, method: str, operation: dict[str, Any], documen
     return "\n".join(lines).rstrip() + "\n", summary
 
 
-def _openapi_sections(path: Path) -> list[Section]:
+def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Section]:
     document = _read_openapi(path)
     sections: list[Section] = []
     for route, raw_path_item in sorted(document.get("paths", {}).items()):
@@ -170,7 +183,7 @@ def _openapi_sections(path: Path) -> list[Section]:
                 title=f"{method.upper()} {route}",
                 path=route,
                 content=content,
-                tokens=count_tokens(content),
+                tokens=count_tokens(content, encoding_name=encoding_name),
                 description=summary,
                 kind="api",
                 method=method.upper(),
@@ -236,7 +249,7 @@ def _clean_markdown(text: str) -> str:
     return cleaned + ("\n" if cleaned else "")
 
 
-def _markdown_sections(directories: list[Path]) -> list[Section]:
+def _markdown_sections(directories: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     for directory in directories:
         for source in sorted((*directory.rglob("*.md"), *directory.rglob("*.mdx"))):
@@ -256,7 +269,7 @@ def _markdown_sections(directories: list[Path]) -> list[Section]:
                 title=title,
                 path=f"/{relative}",
                 content=content,
-                tokens=count_tokens(content),
+                tokens=count_tokens(content, encoding_name=encoding_name),
                 description=description[:240],
             ))
     return sections
@@ -288,24 +301,26 @@ def build_artifacts(
     markdown_directories: list[Path] | None = None,
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
+    encoding_name: str = "cl100k_base",
 ) -> dict[str, Any]:
     sections: list[Section] = []
     for path in openapi_files or []:
-        sections.extend(_openapi_sections(path))
-    sections.extend(_markdown_sections(markdown_directories or []))
+        sections.extend(_openapi_sections(path, encoding_name=encoding_name))
+    sections.extend(_markdown_sections(markdown_directories or [], encoding_name=encoding_name))
     if not sections:
         raise ValueError("No documentation sections were found in the provided sources")
 
     sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     manifest = _manifest(sections, project_name)
     small_header = f"# {project_name} — compact reference\n\n"
-    if small_token_budget < 1 or count_tokens(small_header) > small_token_budget:
+    if small_token_budget < 1 or count_tokens(small_header, encoding_name=encoding_name) > small_token_budget:
         raise ValueError("small_token_budget is too small for the compact-reference header")
 
     output_directory.mkdir(parents=True, exist_ok=True)
     index = {
         "manifest": manifest,
         "sections": [asdict(section) for section in sections],
+        "encoding_name": encoding_name,
     }
     (output_directory / "docs-index.json").write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + "\n",
@@ -331,7 +346,7 @@ def build_artifacts(
     for section in priority_sections:
         candidate_sections = [*small_sections, section]
         candidate_text = small_header + "\n".join(item.content.rstrip() for item in candidate_sections) + "\n"
-        if count_tokens(candidate_text) <= small_token_budget:
+        if count_tokens(candidate_text, encoding_name=encoding_name) <= small_token_budget:
             small_sections.append(section)
     small_sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     small_text = small_header + "\n".join(section.content.rstrip() for section in small_sections) + "\n"
@@ -343,20 +358,41 @@ def build_artifacts(
         encoding="utf-8",
     )
     return manifest
+    (output_directory / "llms-small.txt").write_text(small_text, encoding="utf-8")
+    (output_directory / "llms-full.txt").write_text(
+        f"# {project_name} — full reference\n\n"
+        + "\n".join(section.content.rstrip() for section in sections)
+        + "\n",
+        encoding="utf-8",
+    )
+    return manifest
 
 
 class DocumentationEngine:
-    def __init__(self, sections: list[dict[str, Any]], manifest: dict[str, Any]):
+    def __init__(
+        self,
+        sections: list[dict[str, Any]],
+        manifest: dict[str, Any],
+        embedder: Embedder | None = None,
+        encoding_name: str = "cl100k_base",
+    ):
         self.sections = sections
         self.manifest = manifest
+        self.embedder: Embedder = embedder if embedder is not None else HashingEmbedder()
+        self.encoding_name = encoding_name
+        self._sections_by_id = {s["id"]: s for s in sections}
         self._by_api = {
             (section["path"], section["method"]): section
             for section in sections
             if section.get("kind") == "api" and section.get("method")
         }
         self._database = sqlite3.connect(":memory:")
+        self._database.create_function("cosine_similarity", 2, cosine_similarity)
         self._database.execute(
             "CREATE VIRTUAL TABLE docs USING fts5(id, title, path, description, content)"
+        )
+        self._database.execute(
+            "CREATE TABLE doc_vectors (id TEXT PRIMARY KEY, vector BLOB)"
         )
         self._database.executemany(
             "INSERT INTO docs VALUES (?, ?, ?, ?, ?)",
@@ -366,12 +402,30 @@ class DocumentationEngine:
             ],
         )
 
-    @classmethod
-    def from_index(cls, index_path: Path) -> DocumentationEngine:
-        index = json.loads(index_path.read_text(encoding="utf-8"))
-        return cls(index["sections"], index["manifest"])
+        vector_rows = []
+        for s in sections:
+            embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
+            vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
+        self._database.executemany("INSERT INTO doc_vectors VALUES (?, ?)", vector_rows)
 
-    def search_docs(self, query: str, max_tokens: int = 2000) -> dict[str, Any]:
+    @classmethod
+    def from_index(
+        cls,
+        index_path: Path,
+        embedder: Embedder | None = None,
+        encoding_name: str | None = None,
+    ) -> DocumentationEngine:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        actual_encoding = encoding_name or index.get("encoding_name", "cl100k_base")
+        return cls(index["sections"], index["manifest"], embedder=embedder, encoding_name=actual_encoding)
+
+    def search_docs(
+        self,
+        query: str,
+        max_tokens: int = 2000,
+        bm25_weight: float = 0.5,
+        vector_weight: float = 0.5,
+    ) -> dict[str, Any]:
         if not query.strip():
             return {"status": "error", "error_code": "INVALID_QUERY", "message": "query must not be empty"}
         if max_tokens < 32:
@@ -380,33 +434,66 @@ class DocumentationEngine:
                 "error_code": "INVALID_TOKEN_BUDGET",
                 "message": "max_tokens must be at least 32",
             }
-        terms = _SEARCH_WORDS.findall(query)
-        if not terms:
-            result: dict[str, Any] = {"results": [], "token_count": 0}
-            result["token_count"] = _payload_token_count(result)
-            return result
-        expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
-        rows = self._database.execute(
-            "SELECT id, title, path, description, content, bm25(docs) "
-            "FROM docs WHERE docs MATCH ? ORDER BY bm25(docs)",
-            (expression,),
-        ).fetchall()
 
-        result: dict[str, Any] = {"results": [], "token_count": 0}
-        for row in rows:
+        bm25_ranks: dict[str, int] = {}
+        terms = _SEARCH_WORDS.findall(query)
+        if terms:
+            expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
+            try:
+                rows = self._database.execute(
+                    "SELECT id, bm25(docs) FROM docs WHERE docs MATCH ? ORDER BY bm25(docs) ASC LIMIT 50",
+                    (expression,),
+                ).fetchall()
+                for rank, (doc_id, _) in enumerate(rows, start=1):
+                    bm25_ranks[doc_id] = rank
+            except sqlite3.OperationalError:
+                pass
+
+        vector_ranks: dict[str, int] = {}
+        if self.embedder is not None:
+            query_vec = pack_vector(self.embedder.embed(query))
+            vec_rows = self._database.execute(
+                "SELECT id, cosine_similarity(vector, ?) AS sim FROM doc_vectors ORDER BY sim DESC LIMIT 50",
+                (query_vec,),
+            ).fetchall()
+            for rank, (doc_id, sim) in enumerate(vec_rows, start=1):
+                if sim > 0.0:
+                    vector_ranks[doc_id] = rank
+
+        all_candidate_ids = set(bm25_ranks.keys()) | set(vector_ranks.keys())
+        if not all_candidate_ids:
+            result: dict[str, Any] = {"results": [], "token_count": 0}
+            result["token_count"] = _payload_token_count(result, self.encoding_name)
+            return result
+
+        k = 60
+        scored: list[tuple[float, str]] = []
+        for doc_id in all_candidate_ids:
+            score = 0.0
+            if doc_id in bm25_ranks:
+                score += bm25_weight / (k + bm25_ranks[doc_id])
+            if doc_id in vector_ranks:
+                score += vector_weight / (k + vector_ranks[doc_id])
+            scored.append((score, doc_id))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+
+        result = {"results": [], "token_count": 0}
+        for _, doc_id in scored:
+            s = self._sections_by_id[doc_id]
             candidate = {
-                "id": row[0],
-                "title": row[1],
-                "path": row[2],
-                "description": row[3],
-                "content": row[4],
+                "id": s["id"],
+                "title": s["title"],
+                "path": s["path"],
+                "description": s.get("description", ""),
+                "content": s["content"],
             }
             trial = {"results": [*result["results"], candidate], "token_count": 0}
-            trial["token_count"] = _payload_token_count(trial)
+            trial["token_count"] = _payload_token_count(trial, self.encoding_name)
             if trial["token_count"] > max_tokens:
                 continue
             result = trial
-        result["token_count"] = _payload_token_count(result)
+        result["token_count"] = _payload_token_count(result, self.encoding_name)
         return result
 
     def get_api_spec(self, endpoint_path: str, method: str) -> dict[str, Any]:
@@ -441,12 +528,12 @@ class DocumentationEngine:
         }
 
 
-def _payload_token_count(payload: dict[str, Any]) -> int:
+def _payload_token_count(payload: dict[str, Any], encoding_name: str = "cl100k_base") -> int:
     token_count = payload.get("token_count", 0)
     while True:
         payload["token_count"] = token_count
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        actual_count = count_tokens(encoded)
+        actual_count = count_tokens(encoded, encoding_name=encoding_name)
         if actual_count == token_count:
             return actual_count
         token_count = actual_count
