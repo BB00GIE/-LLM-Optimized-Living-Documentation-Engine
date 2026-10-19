@@ -78,6 +78,12 @@ def test_mcp_operations_are_exact_and_search_respects_full_payload_budget(tmp_pa
     exact = engine.get_api_spec("/api/tasks", "post")
     assert exact["status"] == "ok"
     assert '"required":["title"]' in exact["spec"]
+
+    # Trailing slash normalization
+    with_slash = engine.get_api_spec("/api/tasks/", "post")
+    assert with_slash["status"] == "ok"
+    assert '"required":["title"]' in with_slash["spec"]
+
     path_parameter = engine.get_api_spec("/api/tasks/{task_id}", "GET")
     assert "`task_id` (path, required)" in path_parameter["spec"]
 

@@ -546,6 +546,16 @@ class DocumentationEngine:
     def get_api_spec(self, endpoint_path: str, method: str) -> dict[str, Any]:
         normalized_method = method.upper()
         section = self._by_api.get((endpoint_path, normalized_method))
+        if not section:
+            alt_path = (
+                endpoint_path[:-1]
+                if endpoint_path.endswith("/") and len(endpoint_path) > 1
+                else (endpoint_path + "/")
+            )
+            section = self._by_api.get((alt_path, normalized_method))
+            if section:
+                endpoint_path = alt_path
+
         if section:
             return {
                 "status": "ok",
