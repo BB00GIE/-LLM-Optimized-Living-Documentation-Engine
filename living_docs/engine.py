@@ -424,11 +424,17 @@ class DocumentationEngine:
     ) -> dict[str, Any]:
         if not query.strip():
             return {"status": "error", "error_code": "INVALID_QUERY", "message": "query must not be empty"}
-        if max_tokens < 32:
+        if len(query) > 2000:
+            return {
+                "status": "error",
+                "error_code": "INVALID_QUERY",
+                "message": "query must not exceed 2000 characters",
+            }
+        if max_tokens < 32 or max_tokens > 32768:
             return {
                 "status": "error",
                 "error_code": "INVALID_TOKEN_BUDGET",
-                "message": "max_tokens must be at least 32",
+                "message": "max_tokens must be between 32 and 32768",
             }
 
         bm25_ranks: dict[str, int] = {}

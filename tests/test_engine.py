@@ -90,6 +90,28 @@ def test_mcp_operations_are_exact_and_search_respects_full_payload_budget(tmp_pa
     )
 
 
+def test_search_docs_input_validation_boundaries(tmp_path):
+    output = tmp_path / "out"
+    build_artifacts(
+        output_directory=output,
+        openapi_files=[Path("examples/openapi.yaml")],
+    )
+    engine = DocumentationEngine.from_index(output / "docs-index.json")
+
+    empty_res = engine.search_docs("   ")
+    assert empty_res["error_code"] == "INVALID_QUERY"
+
+    long_res = engine.search_docs("a" * 2001)
+    assert long_res["error_code"] == "INVALID_QUERY"
+    assert "2000" in long_res["message"]
+
+    low_tokens = engine.search_docs("tasks", max_tokens=10)
+    assert low_tokens["error_code"] == "INVALID_TOKEN_BUDGET"
+
+    high_tokens = engine.search_docs("tasks", max_tokens=50000)
+    assert high_tokens["error_code"] == "INVALID_TOKEN_BUDGET"
+
+
 def test_embeddings_and_vector_similarity():
     embedder = HashingEmbedder(dimension=128)
     vec1 = embedder.embed("create a task in the system")
