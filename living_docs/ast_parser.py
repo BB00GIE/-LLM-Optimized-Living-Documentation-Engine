@@ -123,22 +123,40 @@ def _render_py_class(node: ast.ClassDef, rel_path: str, encoding_name: str) -> S
     )
 
 
+def _resolve_clean_relative_path(file_path: Path, root: Path | None = None) -> str:
+    if root is not None:
+        try:
+            return file_path.relative_to(root).as_posix()
+        except ValueError:
+            pass
+    try:
+        return file_path.relative_to(Path.cwd()).as_posix()
+    except ValueError:
+        return file_path.name
+
+
 def extract_python_sections(paths: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
-    files: list[Path] = []
+    files: list[tuple[Path, Path | None]] = []
     for p in paths:
         if p.is_file() and p.suffix == ".py":
-            files.append(p)
+            files.append((p, p.parent))
         elif p.is_dir():
-            files.extend(sorted(p.rglob("*.py")))
+            for child in sorted(p.rglob("*.py")):
+                files.append((child, p))
 
-    for file_path in files:
+    for file_path, root in files:
         try:
-            tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
+            source_text = file_path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+
+        try:
+            tree = ast.parse(source_text, filename=str(file_path))
         except SyntaxError:
             continue
 
-        rel = file_path.as_posix()
+        rel = _resolve_clean_relative_path(file_path, root)
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if not node.name.startswith("_"):
@@ -178,17 +196,21 @@ def _extract_balanced_brace_block(text: str, start_index: int) -> tuple[str, int
 
 def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
-    files: list[Path] = []
+    files: list[tuple[Path, Path | None]] = []
     for p in paths:
         if p.is_file() and p.suffix in (".ts", ".tsx", ".d.ts"):
-            files.append(p)
+            files.append((p, p.parent))
         elif p.is_dir():
-            files.extend(sorted(p.rglob("*.ts")))
-            files.extend(sorted(p.rglob("*.tsx")))
+            for child in sorted((*p.rglob("*.ts"), *p.rglob("*.tsx"))):
+                files.append((child, p))
 
-    for file_path in files:
-        text = file_path.read_text(encoding="utf-8")
-        rel = file_path.as_posix()
+    for file_path, root in files:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+
+        rel = _resolve_clean_relative_path(file_path, root)
 
         # Match JSDoc + exported declaration blocks
         pattern = re.compile(

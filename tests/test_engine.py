@@ -325,6 +325,11 @@ def test_extract_python_ast_sections(tmp_path):
     pos_sec = extract_python_sections([posonly_file])
     assert "def query(sql: str, /, limit: int = 100) -> list[dict]" in pos_sec[0].content
 
+    # Unreadable or invalid encoding should be skipped gracefully
+    bad_file = tmp_path / "bad.py"
+    bad_file.write_bytes(b"\xff\xfe\x00\x00invalid")
+    assert extract_python_sections([bad_file]) == []
+
 
 def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
