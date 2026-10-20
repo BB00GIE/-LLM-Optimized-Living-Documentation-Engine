@@ -25,3 +25,19 @@ def test_token_efficiency_benchmark_with_o200k():
     openapi_result = results[1]
     assert openapi_result.schema_preserved is True
     assert openapi_result.reduction_percentage >= 55.0
+
+
+def test_token_efficiency_benchmark_with_custom_files(tmp_path):
+    from pathlib import Path
+
+    custom_html = tmp_path / "custom.html"
+    custom_html.write_text("<html><body>" + "<p>Verbose narrative page description.</p>" * 50 + "</body></html>", encoding="utf-8")
+
+    results = run_token_efficiency_benchmark(
+        custom_html_path=custom_html,
+        custom_openapi_path=Path("examples/openapi.yaml"),
+    )
+    assert len(results) == 2
+    for r in results:
+        assert r.schema_preserved is True
+        assert r.reduction_percentage > 60.0

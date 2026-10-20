@@ -175,31 +175,45 @@ SAMPLE_RAW_OPENAPI_SPEC = {
 }
 
 
-def run_token_efficiency_benchmark(encoding_name: str = "cl100k_base") -> list[BenchmarkResult]:
+def run_token_efficiency_benchmark(
+    custom_html_path: Path | None = None,
+    custom_openapi_path: Path | None = None,
+    encoding_name: str = "cl100k_base",
+) -> list[BenchmarkResult]:
     """Compare raw human/spec documentation against living-docs optimized outputs."""
-    from living_docs.engine import _render_operation
+    from living_docs.engine import _render_operation, _read_openapi
 
-    # 1. Benchmark: Human HTML Web Docs vs Living Docs Schema Contract
-    raw_html_tokens = count_tokens(SAMPLE_HTML_DOCUMENTATION, encoding_name=encoding_name)
+    html_content = (
+        custom_html_path.read_text(encoding="utf-8")
+        if custom_html_path and custom_html_path.exists()
+        else SAMPLE_HTML_DOCUMENTATION
+    )
+    raw_html_tokens = count_tokens(html_content, encoding_name=encoding_name)
 
-    operation = SAMPLE_RAW_OPENAPI_SPEC["paths"]["/api/tasks"]["post"]
-    optimized_spec, _ = _render_operation("/api/tasks", "post", operation, SAMPLE_RAW_OPENAPI_SPEC)
+    spec_doc = (
+        _read_openapi(custom_openapi_path)
+        if custom_openapi_path and custom_openapi_path.exists()
+        else SAMPLE_RAW_OPENAPI_SPEC
+    )
+
+    first_path = next(iter(spec_doc.get("paths", {})))
+    first_method = next(iter(spec_doc["paths"][first_path]))
+    operation = spec_doc["paths"][first_path][first_method]
+
+    optimized_spec, _ = _render_operation(first_path, first_method, operation, spec_doc)
     optimized_tokens = count_tokens(optimized_spec, encoding_name=encoding_name)
 
     schema_preserved = (
-        "/api/tasks" in optimized_spec
-        and "POST" in optimized_spec
-        and '"required":["title"]' in optimized_spec
-        and '"required":["id","title"]' in optimized_spec
-        and "title" in optimized_spec
-        and "completed" in optimized_spec
+        first_path in optimized_spec
+        and first_method.upper() in optimized_spec
     )
 
     savings_1 = raw_html_tokens - optimized_tokens
     reduction_pct_1 = (savings_1 / raw_html_tokens) * 100.0
 
+    scenario_name = f"Human HTML Web Docs vs Living Docs Schema ({first_method.upper()} {first_path})"
     result_1 = BenchmarkResult(
-        scenario="Human HTML Web Docs vs Living Docs Schema (POST /api/tasks)",
+        scenario=scenario_name,
         raw_tokens=raw_html_tokens,
         optimized_tokens=optimized_tokens,
         tokens_saved=savings_1,
@@ -208,14 +222,14 @@ def run_token_efficiency_benchmark(encoding_name: str = "cl100k_base") -> list[B
     )
 
     # 2. Benchmark: Raw JSON OpenAPI Spec vs Compact Rendered Schema
-    raw_openapi_json = json.dumps(SAMPLE_RAW_OPENAPI_SPEC, indent=2)
+    raw_openapi_json = json.dumps(spec_doc, indent=2)
     raw_openapi_tokens = count_tokens(raw_openapi_json, encoding_name=encoding_name)
 
     savings_2 = raw_openapi_tokens - optimized_tokens
     reduction_pct_2 = (savings_2 / raw_openapi_tokens) * 100.0
 
     result_2 = BenchmarkResult(
-        scenario="Raw OpenAPI JSON Spec vs Living Docs Schema (POST /api/tasks)",
+        scenario=f"Raw OpenAPI JSON Spec vs Living Docs Schema ({first_method.upper()} {first_path})",
         raw_tokens=raw_openapi_tokens,
         optimized_tokens=optimized_tokens,
         tokens_saved=savings_2,

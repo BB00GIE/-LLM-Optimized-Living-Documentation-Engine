@@ -71,6 +71,8 @@ def main() -> None:
     serve.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
 
     benchmark = commands.add_parser("benchmark", help="Run token efficiency benchmarks comparing raw vs optimized docs")
+    benchmark.add_argument("--html", type=Path, default=None, help="Custom HTML web docs file to benchmark")
+    benchmark.add_argument("--spec", type=Path, default=None, help="Custom OpenAPI spec file (JSON or YAML) to benchmark")
     benchmark.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
 
     eval_cmd = commands.add_parser("eval", help="Run E2E agent evaluation scenarios against the living documentation engine")
@@ -107,7 +109,11 @@ def main() -> None:
     elif args.command == "benchmark":
         from living_docs.benchmark import run_token_efficiency_benchmark
 
-        results = run_token_efficiency_benchmark(encoding_name=args.tokenizer)
+        results = run_token_efficiency_benchmark(
+            custom_html_path=args.html,
+            custom_openapi_path=args.spec,
+            encoding_name=args.tokenizer,
+        )
         print("\n=== Token Efficiency Benchmark Results ===")
         for r in results:
             print(f"\nScenario: {r.scenario}")
