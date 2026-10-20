@@ -315,6 +315,8 @@ def build_artifacts(
     output_directory: Path,
     openapi_files: list[Path] | None = None,
     markdown_directories: list[Path] | None = None,
+    python_sources: list[Path] | None = None,
+    typescript_sources: list[Path] | None = None,
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
@@ -324,6 +326,12 @@ def build_artifacts(
     for path in openapi_files or []:
         sections.extend(_openapi_sections(path, encoding_name=encoding_name))
     sections.extend(_markdown_sections(markdown_directories or [], encoding_name=encoding_name))
+    if python_sources:
+        from living_docs.ast_parser import extract_python_sections
+        sections.extend(extract_python_sections(python_sources, encoding_name=encoding_name))
+    if typescript_sources:
+        from living_docs.ast_parser import extract_typescript_sections
+        sections.extend(extract_typescript_sections(typescript_sources, encoding_name=encoding_name))
     if not sections:
         raise ValueError("No documentation sections were found in the provided sources")
 

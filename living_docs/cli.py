@@ -55,6 +55,8 @@ def main() -> None:
     build = commands.add_parser("build", help="Build static artifacts and the MCP search index")
     build.add_argument("--openapi", action="append", type=Path, default=[], help="OpenAPI 3.x JSON/YAML file")
     build.add_argument("--markdown", action="append", type=Path, default=[], help="Markdown/MDX source directory")
+    build.add_argument("--python", action="append", type=Path, default=[], help="Python source file or directory")
+    build.add_argument("--typescript", action="append", type=Path, default=[], help="TypeScript source file or directory")
     build.add_argument("--output", type=Path, required=True, help="Output directory")
     build.add_argument("--project-name", default="Documentation")
     build.add_argument("--small-token-budget", type=int, default=4000)
@@ -73,6 +75,8 @@ def main() -> None:
             output_directory=args.output,
             openapi_files=args.openapi,
             markdown_directories=args.markdown,
+            python_sources=args.python,
+            typescript_sources=args.typescript,
             project_name=args.project_name,
             small_token_budget=args.small_token_budget,
             encoding_name=args.tokenizer,

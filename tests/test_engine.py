@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 import uvicorn
+from living_docs.ast_parser import extract_python_sections, extract_typescript_sections
 from living_docs.cli import create_mcp_server
 from living_docs.embeddings import HashingEmbedder, cosine_similarity, pack_vector
 from living_docs.engine import (
@@ -301,3 +302,55 @@ def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
         asyncio.run(exercise_sse())
     finally:
         uv_server.should_exit = True
+
+
+def test_extract_python_ast_sections():
+    sections = extract_python_sections([Path("examples/src/client.py")])
+    names = {s.title for s in sections}
+    assert "class TaskRecord" in names
+    assert "class TaskClient" in names
+    assert "def format_task_summary" in names
+
+    client_sec = next(s for s in sections if s.title == "class TaskClient")
+    assert "def create_task(title: str, completed: bool = False) -> TaskRecord" in client_sec.content
+    assert "def get_task(task_id: str) -> Optional[TaskRecord]" in client_sec.content
+    assert "Client for managing tasks" in client_sec.description
+
+
+def test_extract_typescript_ast_sections():
+    sections = extract_typescript_sections([Path("examples/src/types.ts")])
+    names = {s.title for s in sections}
+    assert "type TaskPriority" in names
+    assert "interface TaskItem" in names
+    assert "interface CreateTaskInput" in names
+    assert "async function listTasks" in names
+
+    list_sec = next(s for s in sections if s.title == "async function listTasks")
+    assert "Promise<TaskItem[]>" in list_sec.content
+    assert "Fetch tasks filtered by completion status" in list_sec.description
+
+
+def test_builds_artifacts_with_code_sources(tmp_path):
+    output = tmp_path / "out_code"
+    manifest = build_artifacts(
+        output_directory=output,
+        openapi_files=[Path("examples/openapi.yaml")],
+        markdown_directories=[Path("examples/docs")],
+        python_sources=[Path("examples/src/client.py")],
+        typescript_sources=[Path("examples/src/types.ts")],
+        project_name="Full Tasks System",
+    )
+
+    # 4 (OpenAPI) + 1 (Markdown) + 3 (Python: 2 classes, 1 func) + 4 (TS: 1 type, 2 interfaces, 1 func) = 12 sections
+    assert len(manifest["sections"]) >= 10
+    engine = DocumentationEngine.from_index(output / "docs-index.json")
+
+    # Search for python method
+    py_res = engine.search_docs("create_task TaskClient", max_tokens=500)
+    assert py_res["results"]
+    assert any("TaskClient" in r["title"] for r in py_res["results"])
+
+    # Search for typescript interface
+    ts_res = engine.search_docs("TaskItem priority", max_tokens=500)
+    assert ts_res["results"]
+    assert any("TaskItem" in r["title"] for r in ts_res["results"])
