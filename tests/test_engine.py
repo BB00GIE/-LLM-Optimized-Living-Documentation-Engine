@@ -330,13 +330,18 @@ def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
     names = {s.title for s in sections}
     assert "type TaskPriority" in names
+    assert "enum TaskStatus" in names
     assert "interface TaskItem" in names
     assert "interface CreateTaskInput" in names
     assert "async function listTasks" in names
+    assert "const fetchTaskById" in names
 
     list_sec = next(s for s in sections if s.title == "async function listTasks")
     assert "Promise<TaskItem[]>" in list_sec.content
     assert "Fetch tasks filtered by completion status" in list_sec.description
+
+    const_sec = next(s for s in sections if s.title == "const fetchTaskById")
+    assert "async (id: string): Promise<TaskItem | null>" in const_sec.content
 
     # Nested braces in TypeScript interface should not be truncated
     nested_file = tmp_path / "nested.ts"

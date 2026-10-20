@@ -8,6 +8,15 @@
 export type TaskPriority = "low" | "medium" | "high" | "critical";
 
 /**
+ * Task operational lifecycle status.
+ */
+export enum TaskStatus {
+  PENDING = "pending",
+  IN_PROGRESS = "in_progress",
+  COMPLETED = "completed",
+}
+
+/**
  * Persisted task entity model.
  */
 export interface TaskItem {
@@ -38,3 +47,10 @@ export interface CreateTaskInput {
 export async function listTasks(completed?: boolean, limit?: number): Promise<TaskItem[]> {
   return [];
 }
+
+/**
+ * Fetch a single task by ID via arrow function.
+ */
+export const fetchTaskById = async (id: string): Promise<TaskItem | null> => {
+  return null;
+};

@@ -193,7 +193,7 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
         # Match JSDoc + exported declaration blocks
         pattern = re.compile(
             r"(?:/\*\*(?P<jsdoc>[\s\S]*?)\*/\s*)?"
-            r"export\s+(?:default\s+)?(?P<kind>interface|type|class|(?:async\s+)?function)\s+(?P<name>[A-Za-z0-9_$]+)"
+            r"export\s+(?:default\s+)?(?P<kind>interface|type|class|enum|(?:async\s+)?function|const)\s+(?P<name>[A-Za-z0-9_$]+)"
             r"(?P<signature>[^;{=]+)?"
             r"(?P<delimiter>[{=;])"
         )
@@ -240,12 +240,34 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
                     lines.extend((clean_doc, ""))
                 if body:
                     lines.extend(["```typescript", f"type {name}{sig} {body}", "```", ""])
+            elif kind == "enum":
+                full_sig = f"enum {name}"
+                lines.extend([f"# `{full_sig}`", ""])
+                if clean_doc:
+                    lines.extend((clean_doc, ""))
+                if body:
+                    lines.extend(["```typescript", f"enum {name} {body}", "```", ""])
             elif kind == "class":
                 lines.extend([f"# `class {name}{sig}`", ""])
                 if clean_doc:
                     lines.extend((clean_doc, ""))
                 if body:
                     lines.extend(["```typescript", f"class {name}{sig} {body}", "```", ""])
+            elif kind == "const":
+                arrow_match = re.match(
+                    r"=\s*(?:async\s*)?\((?:[^()]|\([^()]*\))*\)(?:\s*:\s*[^={]+)?\s*=>",
+                    body,
+                )
+                if arrow_match:
+                    arrow_sig = arrow_match.group(0).lstrip("=").rstrip("=>").strip()
+                    full_sig = f"const {name} = {arrow_sig}"
+                elif sig:
+                    full_sig = f"const {name}{sig}"
+                else:
+                    full_sig = f"const {name}"
+                lines.extend([f"# `{full_sig}`", ""])
+                if clean_doc:
+                    lines.extend((clean_doc, ""))
 
             content = "\n".join(lines).rstrip() + "\n"
             first_doc = clean_doc_lines[0] if clean_doc_lines else f"{kind} {name}"
