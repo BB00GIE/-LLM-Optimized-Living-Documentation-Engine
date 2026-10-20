@@ -85,6 +85,10 @@ def main() -> None:
     conformance_cmd = commands.add_parser("conformance", help="Run automated MCP protocol conformance test suite")
     conformance_cmd.add_argument("--index", type=Path, default=Path("build/docs-index.json"), help="Path to docs-index.json")
 
+    verify_cmd = commands.add_parser("verify", help="Execute complete 4-step real-world verification suite with database analytics")
+    verify_cmd.add_argument("--spec", type=Path, default=Path("examples/posthog_production_spec.yaml"), help="OpenAPI spec path")
+    verify_cmd.add_argument("--output", type=Path, default=Path("verification_results"), help="Results directory")
+
     args = parser.parse_args()
     if args.command == "build":
         manifest = build_artifacts(
@@ -167,6 +171,28 @@ def main() -> None:
         print("\n=======================================\n")
         if not report.all_passed:
             sys.exit(1)
+    elif args.command == "verify":
+        from living_docs.verification_suite import run_full_verification
+
+        summary = run_full_verification(results_dir=args.output, spec_path=args.spec)
+        print("\n=== Real-World Verification & Data Analytics Summary ===")
+        print(f"Total Experiments:      {summary['total_experiments']}")
+        print(f"Passed Experiments:     {summary['passed_experiments']}")
+        print(f"Overall Success Rate:   {summary['overall_success_rate']:.1f}%")
+        print("\nToken Reduction Statistics:")
+        print(f"  Mean Token Reduction: {summary['token_reduction_stats']['mean_pct']:.1f}%")
+        print(f"  Median Reduction:     {summary['token_reduction_stats']['median_pct']:.1f}%")
+        print(f"  Range:                {summary['token_reduction_stats']['min_pct']:.1f}% - {summary['token_reduction_stats']['max_pct']:.1f}%")
+        print(f"  Total Tokens Saved:   {summary['token_reduction_stats']['total_tokens_saved']:,} tokens")
+        print("\nLatency Metrics (ms):")
+        print(f"  P50 Latency:          {summary['latency_stats_ms']['p50']:.2f} ms")
+        print(f"  P95 Latency:          {summary['latency_stats_ms']['p95']:.2f} ms")
+        print(f"  P99 Latency:          {summary['latency_stats_ms']['p99']:.2f} ms")
+        print("\nArtifacts & Data Stores Generated:")
+        print(f"  SQLite Database:      {summary['database_file']}")
+        print(f"  CSV Metrics Log:      {summary['csv_file']}")
+        print(f"  JSON Full Dump:       {summary['json_file']}")
+        print("========================================================\n")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,201 @@
+openapi: 3.0.3
+info:
+  title: PostHog Production API
+  description: Public REST and Analytics Query API for PostHog
+  version: 1.0.0
+paths:
+  /api/capture:
+    post:
+      summary: Capture events in batch or single payload
+      operationId: captureEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CapturePayload"
+      responses:
+        "200":
+          description: Event successfully ingested into Kafka capture queue.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    example: 1
+
+  /api/projects/{project_id}/query:
+    post:
+      summary: Execute raw HogQL queries and funnel analytics
+      operationId: executeQuery
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          description: Unique team/project identifier
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HogQLQuery"
+      responses:
+        "200":
+          description: Query response dataset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QueryResponse"
+
+  /api/projects/{project_id}/feature_flags:
+    get:
+      summary: List all feature flags for a project
+      operationId: listFeatureFlags
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Paginated feature flags list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/FeatureFlag"
+
+  /api/projects/{project_id}/persons:
+    get:
+      summary: Query identified persons and user properties
+      operationId: listPersons
+      parameters:
+        - name: project_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: distinct_id
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of matched person records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Person"
+
+components:
+  schemas:
+    CapturePayload:
+      type: object
+      required: [api_key, event, distinct_id]
+      properties:
+        api_key:
+          type: string
+          description: Project write-only API key
+        event:
+          type: string
+          description: Event name, e.g. '$pageview' or 'user_signup'
+        distinct_id:
+          type: string
+          description: Unique user identifier
+        properties:
+          type: object
+          description: Arbitrary key-value properties dictionary
+        timestamp:
+          type: string
+          format: date-time
+
+    HogQLQuery:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: object
+          required: [kind, query]
+          properties:
+            kind:
+              type: string
+              enum: [HogQLQuery, EventsQuery, TrendsQuery]
+            query:
+              type: string
+              description: SQL/HogQL expression string
+            values:
+              type: object
+              description: Parameterized query placeholders
+
+    QueryResponse:
+      type: object
+      required: [columns, results]
+      properties:
+        columns:
+          type: array
+          items:
+            type: string
+        results:
+          type: array
+          items:
+            type: array
+            items: {}
+        hasMore:
+          type: boolean
+
+    FeatureFlag:
+      type: object
+      required: [id, key, name, active]
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+          description: Flag key used in code checks
+        name:
+          type: string
+        active:
+          type: boolean
+        rollout_percentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    Person:
+      type: object
+      required: [id, distinct_ids]
+      properties:
+        id:
+          type: string
+        distinct_ids:
+          type: array
+          items:
+            type: string
+        properties:
+          type: object
+        created_at:
+          type: string
+          format: date-time
