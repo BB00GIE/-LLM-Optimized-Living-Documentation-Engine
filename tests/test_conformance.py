@@ -25,3 +25,10 @@ def test_mcp_protocol_conformance_suite(tmp_path):
     assert "tool_call_get_api_spec_success" in check_names
     assert "tool_call_error_contract_conformance" in check_names
     assert "tool_call_search_docs_token_budget" in check_names
+
+
+def test_mcp_conformance_handles_server_connection_failure():
+    # Pass a non-existent index file; the conformance runner should gracefully report failure
+    report = asyncio.run(run_mcp_conformance_suite(Path("non_existent_dir/docs-index.json")))
+    assert report.all_passed is False
+    assert any(not c.passed for c in report.checks)
