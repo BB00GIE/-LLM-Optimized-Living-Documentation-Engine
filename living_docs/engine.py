@@ -398,9 +398,19 @@ def build_artifacts(
             index_lines.append(f"  {section.description}")
     (output_directory / "llms.txt").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
 
+    def _section_priority(s: Section) -> int:
+        if s.kind == "api":
+            return 0
+        if s.kind == "code":
+            return 1
+        return 2
+
     small_sections: list[Section] = []
     accumulated_tokens = header_tokens
-    priority_sections = sorted(sections, key=lambda section: (section.kind != "api", section.path, section.id))
+    priority_sections = sorted(
+        sections,
+        key=lambda section: (_section_priority(section), section.path, section.id),
+    )
     for section in priority_sections:
         if accumulated_tokens + section.tokens + 2 <= small_token_budget:
             candidate_text = small_header + "\n".join(item.content.rstrip() for item in (*small_sections, section)) + "\n"

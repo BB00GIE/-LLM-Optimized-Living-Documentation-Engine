@@ -330,6 +330,17 @@ def test_extract_python_ast_sections(tmp_path):
     bad_file.write_bytes(b"\xff\xfe\x00\x00invalid")
     assert extract_python_sections([bad_file]) == []
 
+    # Private methods (starting with _) should be excluded, except __init__
+    priv_file = tmp_path / "private_methods.py"
+    priv_file.write_text(
+        "class Service:\n    def __init__(self, key: str): pass\n    def public_api(self): pass\n    def _private_worker(self): pass\n",
+        encoding="utf-8",
+    )
+    priv_sec = extract_python_sections([priv_file])
+    assert "__init__" in priv_sec[0].content
+    assert "public_api" in priv_sec[0].content
+    assert "_private_worker" not in priv_sec[0].content
+
 
 def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
@@ -383,6 +394,9 @@ def test_builds_artifacts_with_code_sources(tmp_path):
     ts_res = engine.search_docs("TaskItem priority", max_tokens=500)
     assert ts_res["results"]
     assert any("TaskItem" in r["title"] for r in ts_res["results"])
+
+    small_text = (output / "llms-small.txt").read_text(encoding="utf-8")
+    assert "class TaskClient" in small_text or "TaskItem" in small_text
 
 
 def test_directory_scan_ignores_vendor_and_hidden_dirs(tmp_path):

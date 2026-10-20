@@ -100,6 +100,8 @@ def _render_py_class(node: ast.ClassDef, rel_path: str, encoding_name: str) -> S
     methods: list[str] = []
     for item in node.body:
         if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if item.name.startswith("_") and item.name != "__init__":
+                continue
             method_sig = _format_py_function_signature(item, is_method=True)
             method_doc = ast.get_docstring(item) or ""
             methods.append(f"### `{method_sig}`")
