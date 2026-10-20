@@ -24,6 +24,16 @@ from living_docs.embeddings import (
 _TOKENIZERS: dict[str, tiktoken.Encoding] = {}
 _METHODS = ("get", "post", "put", "patch", "delete")
 _SEARCH_WORDS = re.compile(r"[A-Za-z0-9_./{}-]+")
+_FENCE_REGEX = re.compile(r"^(```+|~~~+)")
+_IMPORT_EXPORT_REGEX = re.compile(r"^\s*(?:import\s+|export\s+\{)")
+_OPEN_HIDDEN_TAG = re.compile(r"<(script|style)\b[^>]*>", re.I)
+_BACKTICK_SPLIT = re.compile(r"(`[^`]+`)")
+_IMAGE_LINK_REGEX = re.compile(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)")
+_MD_LINK_REGEX = re.compile(r"\[([^\]]+)\]\((?!https?://)[^)]+\)")
+_TAG_STRIP_REGEX = re.compile(
+    r"</[A-Za-z][A-Za-z0-9_.:-]*\s*>|(?<![A-Za-z0-9_])<(?!https?://)[A-Za-z][A-Za-z0-9_.:-]*(?:\s+[^>]*)?/?>"
+)
+_MULTI_NEWLINE_REGEX = re.compile(r"\n{3,}")
 
 
 def get_tokenizer(encoding_name: str = "cl100k_base") -> tiktoken.Encoding:
@@ -212,7 +222,7 @@ def _clean_markdown(text: str) -> str:
     hidden_tag: str | None = None
     for line in lines:
         stripped = line.strip()
-        fence_match = re.match(r"^(```+|~~~+)", stripped)
+        fence_match = _FENCE_REGEX.match(stripped)
         if fence_match:
             marker = fence_match.group(1)[0]
             if fence is None:
@@ -224,10 +234,7 @@ def _clean_markdown(text: str) -> str:
         if fence is not None:
             output.append(line)
             continue
-        if (
-            re.match(r"^\s*import\s+", line)
-            or re.match(r"^\s*export\s+\{", line)
-        ):
+        if _IMPORT_EXPORT_REGEX.match(line):
             continue
         while True:
             if hidden_tag:
@@ -237,7 +244,7 @@ def _clean_markdown(text: str) -> str:
                     break
                 line = line[closing.end():]
                 hidden_tag = None
-            opening = re.search(r"<(script|style)\b[^>]*>", line, flags=re.I)
+            opening = _OPEN_HIDDEN_TAG.search(line)
             if not opening:
                 break
             tag = opening.group(1)
@@ -248,20 +255,19 @@ def _clean_markdown(text: str) -> str:
                 break
             closing_end = opening.end() + closing.end()
             line = line[:opening.start()] + line[closing_end:]
-        parts = re.split(r"(`[^`]+`)", line)
+        parts = _BACKTICK_SPLIT.split(line)
         cleaned_parts = []
         for part in parts:
             if part.startswith("`") and part.endswith("`"):
                 cleaned_parts.append(part)
             else:
-                p = re.sub(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)", "", part)
-                p = re.sub(r"\[([^\]]+)\]\((?!https?://)[^)]+\)", r"\1", p)
-                tag_pattern = r"</[A-Za-z][A-Za-z0-9_.:-]*\s*>|(?<![A-Za-z0-9_])<(?!https?://)[A-Za-z][A-Za-z0-9_.:-]*(?:\s+[^>]*)?/?>"
-                p = re.sub(tag_pattern, "", p)
+                p = _IMAGE_LINK_REGEX.sub("", part)
+                p = _MD_LINK_REGEX.sub(r"\1", p)
+                p = _TAG_STRIP_REGEX.sub("", p)
                 cleaned_parts.append(p)
         output.append("".join(cleaned_parts))
 
-    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
+    cleaned = _MULTI_NEWLINE_REGEX.sub("\n\n", "\n".join(output)).strip()
     return cleaned + ("\n" if cleaned else "")
 
 
@@ -450,6 +456,7 @@ class DocumentationEngine:
             for section in sections
             if section.get("kind") == "api" and section.get("method")
         }
+        self._known_api_paths = sorted({path for path, _ in self._by_api})
         self._database = sqlite3.connect(":memory:", check_same_thread=False)
         self._database.create_function("cosine_similarity", 2, cosine_similarity)
         self._database.execute(
@@ -616,8 +623,7 @@ class DocumentationEngine:
             api_method for path, api_method in self._by_api
             if path == endpoint_path
         })
-        known_paths = sorted({path for path, _ in self._by_api})
-        suggestions = difflib.get_close_matches(endpoint_path, known_paths, n=3, cutoff=0.35)
+        suggestions = difflib.get_close_matches(endpoint_path, self._known_api_paths, n=3, cutoff=0.35)
         suggested_methods = sorted({
             api_method for path, api_method in self._by_api
             if path in suggestions
