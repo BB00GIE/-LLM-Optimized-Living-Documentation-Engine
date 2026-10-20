@@ -515,8 +515,8 @@ class DocumentationEngine:
         bm25_weight: float = 0.5,
         vector_weight: float = 0.5,
     ) -> dict[str, Any]:
-        if not query.strip():
-            return {"status": "error", "error_code": "INVALID_QUERY", "message": "query must not be empty"}
+        if not isinstance(query, str) or not query.strip():
+            return {"status": "error", "error_code": "INVALID_QUERY", "message": "query must be a non-empty string"}
         if len(query) > 2000:
             return {
                 "status": "error",
@@ -600,6 +600,19 @@ class DocumentationEngine:
         return result
 
     def get_api_spec(self, endpoint_path: str, method: str) -> dict[str, Any]:
+        if not isinstance(endpoint_path, str) or not endpoint_path.strip():
+            return {
+                "status": "error",
+                "error_code": "INVALID_PATH",
+                "message": "endpoint_path must be a non-empty string",
+            }
+        if not isinstance(method, str) or not method.strip():
+            return {
+                "status": "error",
+                "error_code": "INVALID_METHOD",
+                "message": "method must be a non-empty string",
+            }
+
         normalized_method = method.upper()
         section = self._by_api.get((endpoint_path, normalized_method))
         if not section:
