@@ -22,9 +22,10 @@ This project defines a pipeline and runtime to produce documentation optimized f
 - MCP Server (Model Context Protocol):
   - Resource: `docs://manifest` (index + token metrics)
   - Tools: `search_docs(query, max_tokens)`, `get_api_spec(endpoint_path, method)` (deterministic, schema-first)
-- Whole-operation API retrieval and complete-document Markdown results; oversized search results are omitted rather than truncated.
+  - Transports: both local standard I/O (`stdio`) and remote Server-Sent Events (`sse`)
+- Hybrid search (BM25 + Dense Vectors via Reciprocal Rank Fusion) and whole-section preservation with strict token budgeting.
 
-The current implementation ingests OpenAPI 3.x and Markdown/MDX. Language AST extraction, dense-vector retrieval, and HTTP transports remain planned work.
+The current implementation ingests OpenAPI 3.x and Markdown/MDX. Language AST extraction and agent evaluation benchmarks remain planned work.
 
 ## High‑level Architecture
 
@@ -54,32 +55,35 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
 
 ## Current retrieval and tokenization
 
-- SQLite FTS5/BM25 search plus exact path-and-method API lookup
+- Hybrid search: SQLite FTS5 (BM25) + dense vector embeddings merged via Reciprocal Rank Fusion (RRF)
+- Deterministic path-and-method exact API lookup with close-match route suggestions on missing endpoints
 - OpenAPI operations and Markdown documents remain whole during retrieval
-- Exact local token counts use `cl100k_base`; dense vectors and `o200k_base` support are future extensions
+- Token budgeting supports both `cl100k_base` and `o200k_base` tokenizers via `tiktoken`
 
 ## Roadmap & Milestones
 
 ### Implemented
 - OpenAPI 3.x and Markdown/MDX ingestion
-- Static artifacts and MCP stdio server with manifest, search, and exact API lookup
-- Token-budgeted whole-section search and compact-reference output
+- Static artifacts generation (`/llms.txt`, `/llms-small.txt`, `/llms-full.txt`)
+- Hybrid search (BM25 + Dense Vectors) with Reciprocal Rank Fusion
+- Multi-tokenizer support (`cl100k_base` and `o200k_base`)
+- Dual MCP server transports: stdio and SSE (HTTP) with manifest, search, and exact API lookup
 
-### Next
-- Finalize the canonical `/llms.txt` format
-- Add TypeScript/Python AST extraction and language-aware semantic chunking
-- Add dense-vector retrieval, HTTP transport, and agent evaluation
+### Next (Phase 3 & 4)
+- Add TypeScript/Python AST extraction and language-aware semantic chunking directly from source files
+- Automated token reduction benchmark suite (>60% reduction target)
+- Agent task success evaluation harness and MCP conformance verification
 
 ### Long term
 - Ecosystem: exporters (SDKs), adapters for common docs stacks (mkdocs, swagger), and production deployment patterns
 
-## Suggested Tech Stack (provisional)
+## Suggested Tech Stack
 
 - Runtime: Python 3.11+ and the official MCP SDK
 - Parsing: PyYAML for OpenAPI YAML, built-in JSON and Markdown/MDX processing
-- Storage & search: SQLite FTS5/BM25 (dense-vector storage remains planned)
-- Protocol: official MCP SDK for Python
-- Tokenization: tiktoken (`cl100k_base`)
+- Storage & search: SQLite FTS5 (BM25) + embedded vector similarity
+- Protocol: official MCP SDK for Python (`stdio` and `sse` transports with Starlette/Uvicorn)
+- Tokenization: tiktoken (`cl100k_base` and `o200k_base`)
 
 ## How to contribute
 
@@ -92,12 +96,21 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
   ```
 
   This creates `llms.txt`, `llms-small.txt`, `llms-full.txt`, and `docs-index.json`.
-- Start the MCP server over stdio with `living-docs serve --index build\docs-index.json`.
+- Start the MCP server over stdio:
+
+  ```powershell
+  living-docs serve --index build\docs-index.json --transport stdio
+  ```
+
+- Or run the MCP server over SSE for remote clients:
+
+  ```powershell
+  living-docs serve --index build\docs-index.json --transport sse --host 127.0.0.1 --port 8000
+  ```
+
 - Run the tests with `python -m pytest`.
 
-The initial slice supports OpenAPI 3.x JSON/YAML files (including local `$ref`s), Markdown/MDX cleanup, `cl100k_base` token counts, static output generation, SQLite FTS5/BM25 search, and the `docs://manifest`, `search_docs`, and `get_api_spec` MCP surfaces.
-
-Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); dense-vector retrieval, TypeScript/Python AST extraction, HTTP/SSE serving, and agent evaluation are not implemented yet.
+Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); TypeScript/Python AST extraction and agent evaluation are the next milestones.
 
 ## License & Contact
 

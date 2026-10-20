@@ -4,6 +4,7 @@ import difflib
 import json
 import re
 import sqlite3
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -12,10 +13,23 @@ from urllib.parse import quote
 import tiktoken
 import yaml
 
+from living_docs.embeddings import (
+    Embedder,
+    HashingEmbedder,
+    cosine_similarity,
+    pack_vector,
+)
 
-_TOKENIZER = tiktoken.get_encoding("cl100k_base")
+
+_TOKENIZERS: dict[str, tiktoken.Encoding] = {}
 _METHODS = ("get", "post", "put", "patch", "delete")
 _SEARCH_WORDS = re.compile(r"[A-Za-z0-9_./{}-]+")
+
+
+def get_tokenizer(encoding_name: str = "cl100k_base") -> tiktoken.Encoding:
+    if encoding_name not in _TOKENIZERS:
+        _TOKENIZERS[encoding_name] = tiktoken.get_encoding(encoding_name)
+    return _TOKENIZERS[encoding_name]
 
 
 @dataclass(frozen=True)
@@ -30,8 +44,8 @@ class Section:
     method: str | None = None
 
 
-def count_tokens(text: str) -> int:
-    return len(_TOKENIZER.encode(text))
+def count_tokens(text: str, encoding_name: str = "cl100k_base") -> int:
+    return len(get_tokenizer(encoding_name).encode(text))
 
 
 def _read_openapi(path: Path) -> dict[str, Any]:
@@ -42,9 +56,16 @@ def _read_openapi(path: Path) -> dict[str, Any]:
     return document
 
 
-def _resolve_local_refs(value: Any, document: dict[str, Any], seen: frozenset[str] = frozenset()) -> Any:
+def _resolve_local_refs(
+    value: Any,
+    document: dict[str, Any],
+    seen: frozenset[str] = frozenset(),
+    depth: int = 0,
+) -> Any:
+    if depth > 64:
+        raise ValueError("Exceeded maximum OpenAPI reference recursion depth (64)")
     if isinstance(value, list):
-        return [_resolve_local_refs(item, document, seen) for item in value]
+        return [_resolve_local_refs(item, document, seen, depth + 1) for item in value]
     if not isinstance(value, dict):
         return value
 
@@ -62,10 +83,10 @@ def _resolve_local_refs(value: Any, document: dict[str, Any], seen: frozenset[st
                 if not isinstance(target, dict) or part not in target:
                     raise ValueError(f"OpenAPI reference does not exist: {reference}")
                 target = target[part]
-            result.update(_resolve_local_refs(target, document, seen | {reference}))
+            result.update(_resolve_local_refs(target, document, seen | {reference}, depth + 1))
 
     result.update({
-        key: _resolve_local_refs(item, document, seen)
+        key: _resolve_local_refs(item, document, seen, depth + 1)
         for key, item in value.items()
         if key != "$ref"
     })
@@ -139,7 +160,7 @@ def _render_operation(path: str, method: str, operation: dict[str, Any], documen
     return "\n".join(lines).rstrip() + "\n", summary
 
 
-def _openapi_sections(path: Path) -> list[Section]:
+def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Section]:
     document = _read_openapi(path)
     sections: list[Section] = []
     for route, raw_path_item in sorted(document.get("paths", {}).items()):
@@ -170,7 +191,7 @@ def _openapi_sections(path: Path) -> list[Section]:
                 title=f"{method.upper()} {route}",
                 path=route,
                 content=content,
-                tokens=count_tokens(content),
+                tokens=count_tokens(content, encoding_name=encoding_name),
                 description=summary,
                 kind="api",
                 method=method.upper(),
@@ -227,16 +248,24 @@ def _clean_markdown(text: str) -> str:
                 break
             closing_end = opening.end() + closing.end()
             line = line[:opening.start()] + line[closing_end:]
-        line = re.sub(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)", "", line)
-        line = re.sub(r"\[([^\]]+)\]\((?!https?://)[^)]+\)", r"\1", line)
-        line = re.sub(r"<(?!https?://)/?[A-Za-z][^>]*>", "", line)
-        output.append(line)
+        parts = re.split(r"(`[^`]+`)", line)
+        cleaned_parts = []
+        for part in parts:
+            if part.startswith("`") and part.endswith("`"):
+                cleaned_parts.append(part)
+            else:
+                p = re.sub(r"!\[([^\]]*)\]\((?!https?://)[^)]+\)", "", part)
+                p = re.sub(r"\[([^\]]+)\]\((?!https?://)[^)]+\)", r"\1", p)
+                tag_pattern = r"</[A-Za-z][A-Za-z0-9_.:-]*\s*>|(?<![A-Za-z0-9_])<(?!https?://)[A-Za-z][A-Za-z0-9_.:-]*(?:\s+[^>]*)?/?>"
+                p = re.sub(tag_pattern, "", p)
+                cleaned_parts.append(p)
+        output.append("".join(cleaned_parts))
 
     cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
     return cleaned + ("\n" if cleaned else "")
 
 
-def _markdown_sections(directories: list[Path]) -> list[Section]:
+def _markdown_sections(directories: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     for directory in directories:
         for source in sorted((*directory.rglob("*.md"), *directory.rglob("*.mdx"))):
@@ -256,7 +285,7 @@ def _markdown_sections(directories: list[Path]) -> list[Section]:
                 title=title,
                 path=f"/{relative}",
                 content=content,
-                tokens=count_tokens(content),
+                tokens=count_tokens(content, encoding_name=encoding_name),
                 description=description[:240],
             ))
     return sections
@@ -288,24 +317,35 @@ def build_artifacts(
     markdown_directories: list[Path] | None = None,
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
+    encoding_name: str = "cl100k_base",
+    embedder: Embedder | None = None,
 ) -> dict[str, Any]:
     sections: list[Section] = []
     for path in openapi_files or []:
-        sections.extend(_openapi_sections(path))
-    sections.extend(_markdown_sections(markdown_directories or []))
+        sections.extend(_openapi_sections(path, encoding_name=encoding_name))
+    sections.extend(_markdown_sections(markdown_directories or [], encoding_name=encoding_name))
     if not sections:
         raise ValueError("No documentation sections were found in the provided sources")
 
     sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     manifest = _manifest(sections, project_name)
     small_header = f"# {project_name} — compact reference\n\n"
-    if small_token_budget < 1 or count_tokens(small_header) > small_token_budget:
+    header_tokens = count_tokens(small_header, encoding_name=encoding_name)
+    if small_token_budget < 1 or header_tokens > small_token_budget:
         raise ValueError("small_token_budget is too small for the compact-reference header")
+
+    active_embedder = embedder or HashingEmbedder()
+    vectors: dict[str, str] = {}
+    for section in sections:
+        embed_text = f"{section.title}\n{section.description}\n{section.content}"
+        vectors[section.id] = pack_vector(active_embedder.embed(embed_text)).hex()
 
     output_directory.mkdir(parents=True, exist_ok=True)
     index = {
         "manifest": manifest,
         "sections": [asdict(section) for section in sections],
+        "encoding_name": encoding_name,
+        "vectors": vectors,
     }
     (output_directory / "docs-index.json").write_text(
         json.dumps(index, ensure_ascii=False, indent=2) + "\n",
@@ -327,12 +367,15 @@ def build_artifacts(
     (output_directory / "llms.txt").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
 
     small_sections: list[Section] = []
+    accumulated_tokens = header_tokens
     priority_sections = sorted(sections, key=lambda section: (section.kind != "api", section.path, section.id))
     for section in priority_sections:
-        candidate_sections = [*small_sections, section]
-        candidate_text = small_header + "\n".join(item.content.rstrip() for item in candidate_sections) + "\n"
-        if count_tokens(candidate_text) <= small_token_budget:
-            small_sections.append(section)
+        if accumulated_tokens + section.tokens + 2 <= small_token_budget:
+            candidate_text = small_header + "\n".join(item.content.rstrip() for item in (*small_sections, section)) + "\n"
+            exact_tokens = count_tokens(candidate_text, encoding_name=encoding_name)
+            if exact_tokens <= small_token_budget:
+                small_sections.append(section)
+                accumulated_tokens = exact_tokens
     small_sections.sort(key=lambda section: (section.path, section.method or "", section.id))
     small_text = small_header + "\n".join(section.content.rstrip() for section in small_sections) + "\n"
     (output_directory / "llms-small.txt").write_text(small_text, encoding="utf-8")
@@ -346,17 +389,32 @@ def build_artifacts(
 
 
 class DocumentationEngine:
-    def __init__(self, sections: list[dict[str, Any]], manifest: dict[str, Any]):
+    def __init__(
+        self,
+        sections: list[dict[str, Any]],
+        manifest: dict[str, Any],
+        embedder: Embedder | None = None,
+        encoding_name: str = "cl100k_base",
+        vectors: dict[str, bytes] | None = None,
+    ):
         self.sections = sections
         self.manifest = manifest
+        self.embedder: Embedder = embedder if embedder is not None else HashingEmbedder()
+        self.encoding_name = encoding_name
+        self._sections_by_id = {s["id"]: s for s in sections}
+        self._lock = threading.Lock()
         self._by_api = {
             (section["path"], section["method"]): section
             for section in sections
             if section.get("kind") == "api" and section.get("method")
         }
-        self._database = sqlite3.connect(":memory:")
+        self._database = sqlite3.connect(":memory:", check_same_thread=False)
+        self._database.create_function("cosine_similarity", 2, cosine_similarity)
         self._database.execute(
             "CREATE VIRTUAL TABLE docs USING fts5(id, title, path, description, content)"
+        )
+        self._database.execute(
+            "CREATE TABLE doc_vectors (id TEXT PRIMARY KEY, vector BLOB)"
         )
         self._database.executemany(
             "INSERT INTO docs VALUES (?, ?, ?, ?, ?)",
@@ -366,52 +424,145 @@ class DocumentationEngine:
             ],
         )
 
-    @classmethod
-    def from_index(cls, index_path: Path) -> DocumentationEngine:
-        index = json.loads(index_path.read_text(encoding="utf-8"))
-        return cls(index["sections"], index["manifest"])
+        vector_rows = []
+        if vectors:
+            for s in sections:
+                if s["id"] in vectors:
+                    vector_rows.append((s["id"], vectors[s["id"]]))
+                else:
+                    embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
+                    vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
+        else:
+            for s in sections:
+                embed_text = f"{s['title']}\n{s.get('description', '')}\n{s['content']}"
+                vector_rows.append((s["id"], pack_vector(self.embedder.embed(embed_text))))
+        self._database.executemany("INSERT INTO doc_vectors VALUES (?, ?)", vector_rows)
 
-    def search_docs(self, query: str, max_tokens: int = 2000) -> dict[str, Any]:
+    @classmethod
+    def from_index(
+        cls,
+        index_path: Path,
+        embedder: Embedder | None = None,
+        encoding_name: str | None = None,
+    ) -> DocumentationEngine:
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        actual_encoding = encoding_name or index.get("encoding_name", "cl100k_base")
+        raw_vectors = index.get("vectors")
+        vectors: dict[str, bytes] | None = None
+        if raw_vectors:
+            vectors = {doc_id: bytes.fromhex(hex_str) for doc_id, hex_str in raw_vectors.items()}
+        return cls(
+            index["sections"],
+            index["manifest"],
+            embedder=embedder,
+            encoding_name=actual_encoding,
+            vectors=vectors,
+        )
+
+    def search_docs(
+        self,
+        query: str,
+        max_tokens: int = 2000,
+        bm25_weight: float = 0.5,
+        vector_weight: float = 0.5,
+    ) -> dict[str, Any]:
         if not query.strip():
             return {"status": "error", "error_code": "INVALID_QUERY", "message": "query must not be empty"}
-        if max_tokens < 32:
+        if len(query) > 2000:
+            return {
+                "status": "error",
+                "error_code": "INVALID_QUERY",
+                "message": "query must not exceed 2000 characters",
+            }
+        if max_tokens < 32 or max_tokens > 32768:
             return {
                 "status": "error",
                 "error_code": "INVALID_TOKEN_BUDGET",
-                "message": "max_tokens must be at least 32",
+                "message": "max_tokens must be between 32 and 32768",
             }
-        terms = _SEARCH_WORDS.findall(query)
-        if not terms:
-            result: dict[str, Any] = {"results": [], "token_count": 0}
-            result["token_count"] = _payload_token_count(result)
-            return result
-        expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
-        rows = self._database.execute(
-            "SELECT id, title, path, description, content, bm25(docs) "
-            "FROM docs WHERE docs MATCH ? ORDER BY bm25(docs)",
-            (expression,),
-        ).fetchall()
 
-        result: dict[str, Any] = {"results": [], "token_count": 0}
-        for row in rows:
+        bm25_ranks: dict[str, int] = {}
+        terms = _SEARCH_WORDS.findall(query)
+        query_vec: bytes | None = None
+        if self.embedder is not None:
+            query_vec = pack_vector(self.embedder.embed(query))
+
+        vector_ranks: dict[str, int] = {}
+        with self._lock:
+            if terms:
+                expression = " OR ".join(f'"{term.replace(chr(34), chr(34) * 2)}"' for term in terms[:32])
+                try:
+                    rows = self._database.execute(
+                        "SELECT id, bm25(docs) FROM docs WHERE docs MATCH ? ORDER BY bm25(docs) ASC LIMIT 50",
+                        (expression,),
+                    ).fetchall()
+                    for rank, (doc_id, _) in enumerate(rows, start=1):
+                        bm25_ranks[doc_id] = rank
+                except sqlite3.OperationalError:
+                    pass
+
+            if query_vec is not None:
+                vec_rows = self._database.execute(
+                    "SELECT id, cosine_similarity(vector, ?) AS sim FROM doc_vectors ORDER BY sim DESC LIMIT 50",
+                    (query_vec,),
+                ).fetchall()
+                for rank, (doc_id, sim) in enumerate(vec_rows, start=1):
+                    if sim > 0.0:
+                        vector_ranks[doc_id] = rank
+
+        all_candidate_ids = set(bm25_ranks.keys()) | set(vector_ranks.keys())
+        if not all_candidate_ids:
+            result: dict[str, Any] = {"results": [], "token_count": 0}
+            result["token_count"] = _payload_token_count(result, self.encoding_name)
+            return result
+
+        k = 60
+        scored: list[tuple[float, str]] = []
+        for doc_id in all_candidate_ids:
+            score = 0.0
+            if doc_id in bm25_ranks:
+                score += bm25_weight / (k + bm25_ranks[doc_id])
+            if doc_id in vector_ranks:
+                score += vector_weight / (k + vector_ranks[doc_id])
+            scored.append((score, doc_id))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+
+        result = {"results": [], "token_count": 0}
+        current_tokens = _payload_token_count(result, self.encoding_name)
+        for _, doc_id in scored:
+            s = self._sections_by_id[doc_id]
+            if current_tokens + s.get("tokens", 0) > max_tokens + 50:
+                continue
             candidate = {
-                "id": row[0],
-                "title": row[1],
-                "path": row[2],
-                "description": row[3],
-                "content": row[4],
+                "id": s["id"],
+                "title": s["title"],
+                "path": s["path"],
+                "description": s.get("description", ""),
+                "content": s["content"],
             }
             trial = {"results": [*result["results"], candidate], "token_count": 0}
-            trial["token_count"] = _payload_token_count(trial)
-            if trial["token_count"] > max_tokens:
+            trial_tokens = _payload_token_count(trial, self.encoding_name)
+            if trial_tokens > max_tokens:
                 continue
             result = trial
-        result["token_count"] = _payload_token_count(result)
+            current_tokens = trial_tokens
+        result["token_count"] = current_tokens
         return result
 
     def get_api_spec(self, endpoint_path: str, method: str) -> dict[str, Any]:
         normalized_method = method.upper()
         section = self._by_api.get((endpoint_path, normalized_method))
+        if not section:
+            alt_path = (
+                endpoint_path[:-1]
+                if endpoint_path.endswith("/") and len(endpoint_path) > 1
+                else (endpoint_path + "/")
+            )
+            section = self._by_api.get((alt_path, normalized_method))
+            if section:
+                endpoint_path = alt_path
+
         if section:
             return {
                 "status": "ok",
@@ -441,12 +592,12 @@ class DocumentationEngine:
         }
 
 
-def _payload_token_count(payload: dict[str, Any]) -> int:
+def _payload_token_count(payload: dict[str, Any], encoding_name: str = "cl100k_base") -> int:
     token_count = payload.get("token_count", 0)
     while True:
         payload["token_count"] = token_count
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-        actual_count = count_tokens(encoded)
+        actual_count = count_tokens(encoded, encoding_name=encoding_name)
         if actual_count == token_count:
             return actual_count
         token_count = actual_count
