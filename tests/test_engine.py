@@ -304,7 +304,7 @@ def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
         uv_server.should_exit = True
 
 
-def test_extract_python_ast_sections():
+def test_extract_python_ast_sections(tmp_path):
     sections = extract_python_sections([Path("examples/src/client.py")])
     names = {s.title for s in sections}
     assert "class TaskRecord" in names
@@ -315,6 +315,15 @@ def test_extract_python_ast_sections():
     assert "def create_task(title: str, completed: bool = False) -> TaskRecord" in client_sec.content
     assert "def get_task(task_id: str) -> Optional[TaskRecord]" in client_sec.content
     assert "Client for managing tasks" in client_sec.description
+
+    # Positional-only parameter support
+    posonly_file = tmp_path / "posonly.py"
+    posonly_file.write_text(
+        "def query(sql: str, /, limit: int = 100) -> list[dict]:\n    '''Run raw query.'''\n    return []\n",
+        encoding="utf-8",
+    )
+    pos_sec = extract_python_sections([posonly_file])
+    assert "def query(sql: str, /, limit: int = 100) -> list[dict]" in pos_sec[0].content
 
 
 def test_extract_typescript_ast_sections():

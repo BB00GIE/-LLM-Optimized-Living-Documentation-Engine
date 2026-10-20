@@ -19,12 +19,26 @@ def _format_py_function_signature(node: ast.FunctionDef | ast.AsyncFunctionDef, 
     args = node.args
     arg_strs: list[str] = []
 
+    posonly_args = list(getattr(args, "posonlyargs", []))
     pos_args = list(args.args)
-    if is_method and pos_args and pos_args[0].arg in ("self", "cls"):
-        pos_args = pos_args[1:]
 
-    defaults = [None] * (len(pos_args) - len(args.defaults)) + list(args.defaults)
-    for arg, default in zip(pos_args, defaults):
+    if is_method:
+        if posonly_args and posonly_args[0].arg in ("self", "cls"):
+            posonly_args = posonly_args[1:]
+        elif pos_args and pos_args[0].arg in ("self", "cls"):
+            pos_args = pos_args[1:]
+
+    all_pos = posonly_args + pos_args
+    defaults = [None] * (len(all_pos) - len(args.defaults)) + list(args.defaults)
+    posonly_defaults = defaults[: len(posonly_args)]
+    standard_defaults = defaults[len(posonly_args) :]
+
+    for arg, default in zip(posonly_args, posonly_defaults):
+        arg_strs.append(_format_py_arg(arg, default))
+    if posonly_args:
+        arg_strs.append("/")
+
+    for arg, default in zip(pos_args, standard_defaults):
         arg_strs.append(_format_py_arg(arg, default))
 
     if args.vararg:
