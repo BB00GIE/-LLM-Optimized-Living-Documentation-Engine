@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -137,6 +138,8 @@ def main() -> None:
             for err in r.errors:
                 print(f"         Error: {err}")
         print("\n===========================================\n")
+        if report.first_pass_accuracy < 90.0:
+            sys.exit(1)
     elif args.command == "conformance":
         import asyncio
         from living_docs.conformance import run_mcp_conformance_suite
@@ -156,6 +159,8 @@ def main() -> None:
             mark = "PASS" if c.passed else "FAIL"
             print(f"  [{mark}] {c.name}: {c.message}")
         print("\n=======================================\n")
+        if not report.all_passed:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
