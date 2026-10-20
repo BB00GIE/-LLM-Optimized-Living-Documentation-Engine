@@ -196,9 +196,22 @@ def run_token_efficiency_benchmark(
         else SAMPLE_RAW_OPENAPI_SPEC
     )
 
-    first_path = next(iter(spec_doc.get("paths", {})))
-    first_method = next(iter(spec_doc["paths"][first_path]))
-    operation = spec_doc["paths"][first_path][first_method]
+    valid_methods = ("get", "post", "put", "patch", "delete")
+    found_op: tuple[str, str, dict[str, Any]] | None = None
+    for route, path_item in spec_doc.get("paths", {}).items():
+        if not isinstance(path_item, dict):
+            continue
+        for m in valid_methods:
+            if m in path_item and isinstance(path_item[m], dict):
+                found_op = (route, m, path_item[m])
+                break
+        if found_op:
+            break
+
+    if not found_op:
+        raise ValueError("No valid HTTP operations found in the provided OpenAPI specification")
+
+    first_path, first_method, operation = found_op
 
     optimized_spec, _ = _render_operation(first_path, first_method, operation, spec_doc)
     optimized_tokens = count_tokens(optimized_spec, encoding_name=encoding_name)
