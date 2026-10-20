@@ -265,10 +265,34 @@ def _clean_markdown(text: str) -> str:
     return cleaned + ("\n" if cleaned else "")
 
 
+IGNORED_DIRS = frozenset({
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+})
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in IGNORED_DIRS or (part.startswith(".") and part != ".")
+        for part in path.parts[:-1]
+    )
+
+
 def _markdown_sections(directories: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     for directory in directories:
-        for source in sorted((*directory.rglob("*.md"), *directory.rglob("*.mdx"))):
+        sources = [
+            source
+            for source in (*directory.rglob("*.md"), *directory.rglob("*.mdx"))
+            if not _is_ignored_path(source)
+        ]
+        for source in sorted(sources):
             content = _clean_markdown(source.read_text(encoding="utf-8"))
             if not content:
                 continue

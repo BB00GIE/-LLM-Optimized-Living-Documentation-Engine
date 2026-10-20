@@ -123,6 +123,25 @@ def _render_py_class(node: ast.ClassDef, rel_path: str, encoding_name: str) -> S
     )
 
 
+IGNORED_DIRS = frozenset({
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+})
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in IGNORED_DIRS or (part.startswith(".") and part != ".")
+        for part in path.parts[:-1]
+    )
+
+
 def _resolve_clean_relative_path(file_path: Path, root: Path | None = None) -> str:
     if root is not None:
         try:
@@ -143,7 +162,8 @@ def extract_python_sections(paths: list[Path], encoding_name: str = "cl100k_base
             files.append((p, p.parent))
         elif p.is_dir():
             for child in sorted(p.rglob("*.py")):
-                files.append((child, p))
+                if not _is_ignored_path(child):
+                    files.append((child, p))
 
     for file_path, root in files:
         try:
@@ -202,7 +222,8 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
             files.append((p, p.parent))
         elif p.is_dir():
             for child in sorted((*p.rglob("*.ts"), *p.rglob("*.tsx"))):
-                files.append((child, p))
+                if not _is_ignored_path(child):
+                    files.append((child, p))
 
     for file_path, root in files:
         try:

@@ -383,3 +383,47 @@ def test_builds_artifacts_with_code_sources(tmp_path):
     ts_res = engine.search_docs("TaskItem priority", max_tokens=500)
     assert ts_res["results"]
     assert any("TaskItem" in r["title"] for r in ts_res["results"])
+
+
+def test_directory_scan_ignores_vendor_and_hidden_dirs(tmp_path):
+    # Setup vendor and hidden directories with mock files
+    src_dir = tmp_path / "project"
+    src_dir.mkdir()
+    (src_dir / "valid.py").write_text("def valid_func() -> None: pass\n", encoding="utf-8")
+    (src_dir / "valid.ts").write_text("export function validTs(): void {}\n", encoding="utf-8")
+    (src_dir / "valid.md").write_text("# Valid Doc\nValid content.\n", encoding="utf-8")
+
+    node_modules = src_dir / "node_modules" / "pkg"
+    node_modules.mkdir(parents=True)
+    (node_modules / "vendor.ts").write_text("export function vendorTs(): void {}\n", encoding="utf-8")
+
+    venv = src_dir / ".venv" / "lib"
+    venv.mkdir(parents=True)
+    (venv / "vendor.py").write_text("def venv_func() -> None: pass\n", encoding="utf-8")
+
+    hidden = src_dir / ".hidden_docs"
+    hidden.mkdir()
+    (hidden / "hidden.md").write_text("# Hidden\nHidden content.\n", encoding="utf-8")
+
+    py_sections = extract_python_sections([src_dir])
+    assert len(py_sections) == 1
+    assert py_sections[0].title == "def valid_func"
+
+    ts_sections = extract_typescript_sections([src_dir])
+    assert len(ts_sections) == 1
+    assert ts_sections[0].title == "function validTs"
+
+    out = tmp_path / "out_ignore"
+    manifest = build_artifacts(
+        output_directory=out,
+        markdown_directories=[src_dir],
+        python_sources=[src_dir],
+        typescript_sources=[src_dir],
+    )
+    titles = {s["title"] for s in manifest["sections"]}
+    assert "def valid_func" in titles
+    assert "function validTs" in titles
+    assert "Valid Doc" in titles
+    assert "def venv_func" not in titles
+    assert "function vendorTs" not in titles
+    assert "Hidden" not in titles
