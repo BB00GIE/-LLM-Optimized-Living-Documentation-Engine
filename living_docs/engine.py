@@ -636,10 +636,12 @@ class DocumentationEngine:
 
 def _payload_token_count(payload: dict[str, Any], encoding_name: str = "cl100k_base") -> int:
     token_count = payload.get("token_count", 0)
-    while True:
+    for _ in range(10):
         payload["token_count"] = token_count
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         actual_count = count_tokens(encoded, encoding_name=encoding_name)
         if actual_count == token_count:
             return actual_count
         token_count = actual_count
+    payload["token_count"] = token_count
+    return token_count
