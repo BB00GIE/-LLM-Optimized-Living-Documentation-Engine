@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 import uvicorn
+from living_docs.ast_parser import extract_python_sections, extract_typescript_sections
 from living_docs.cli import create_mcp_server
 from living_docs.embeddings import HashingEmbedder, cosine_similarity, pack_vector
 from living_docs.engine import (
@@ -301,3 +302,142 @@ def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
         asyncio.run(exercise_sse())
     finally:
         uv_server.should_exit = True
+
+
+def test_extract_python_ast_sections(tmp_path):
+    sections = extract_python_sections([Path("examples/src/client.py")])
+    names = {s.title for s in sections}
+    assert "class TaskRecord" in names
+    assert "class TaskClient" in names
+    assert "def format_task_summary" in names
+
+    client_sec = next(s for s in sections if s.title == "class TaskClient")
+    assert "def create_task(title: str, completed: bool = False) -> TaskRecord" in client_sec.content
+    assert "def get_task(task_id: str) -> Optional[TaskRecord]" in client_sec.content
+    assert "Client for managing tasks" in client_sec.description
+
+    # Positional-only parameter support
+    posonly_file = tmp_path / "posonly.py"
+    posonly_file.write_text(
+        "def query(sql: str, /, limit: int = 100) -> list[dict]:\n    '''Run raw query.'''\n    return []\n",
+        encoding="utf-8",
+    )
+    pos_sec = extract_python_sections([posonly_file])
+    assert "def query(sql: str, /, limit: int = 100) -> list[dict]" in pos_sec[0].content
+
+    # Unreadable or invalid encoding should be skipped gracefully
+    bad_file = tmp_path / "bad.py"
+    bad_file.write_bytes(b"\xff\xfe\x00\x00invalid")
+    assert extract_python_sections([bad_file]) == []
+
+    # Private methods (starting with _) should be excluded, except __init__
+    priv_file = tmp_path / "private_methods.py"
+    priv_file.write_text(
+        "class Service:\n    def __init__(self, key: str): pass\n    def public_api(self): pass\n    def _private_worker(self): pass\n",
+        encoding="utf-8",
+    )
+    priv_sec = extract_python_sections([priv_file])
+    assert "__init__" in priv_sec[0].content
+    assert "public_api" in priv_sec[0].content
+    assert "_private_worker" not in priv_sec[0].content
+
+
+def test_extract_typescript_ast_sections(tmp_path):
+    sections = extract_typescript_sections([Path("examples/src/types.ts")])
+    names = {s.title for s in sections}
+    assert "type TaskPriority" in names
+    assert "enum TaskStatus" in names
+    assert "interface TaskItem" in names
+    assert "interface CreateTaskInput" in names
+    assert "async function listTasks" in names
+    assert "const fetchTaskById" in names
+
+    list_sec = next(s for s in sections if s.title == "async function listTasks")
+    assert "Promise<TaskItem[]>" in list_sec.content
+    assert "Fetch tasks filtered by completion status" in list_sec.description
+
+    const_sec = next(s for s in sections if s.title == "const fetchTaskById")
+    assert "async (id: string): Promise<TaskItem | null>" in const_sec.content
+
+    # Nested braces in TypeScript interface should not be truncated
+    nested_file = tmp_path / "nested.ts"
+    nested_file.write_text(
+        "export interface DeepConfig {\n  nested: {\n    key: string;\n    count: number;\n  };\n  active: boolean;\n}\n",
+        encoding="utf-8",
+    )
+    nested_secs = extract_typescript_sections([nested_file])
+    assert "active: boolean;" in nested_secs[0].content
+    assert "count: number;" in nested_secs[0].content
+
+
+def test_builds_artifacts_with_code_sources(tmp_path):
+    output = tmp_path / "out_code"
+    manifest = build_artifacts(
+        output_directory=output,
+        openapi_files=[Path("examples/openapi.yaml")],
+        markdown_directories=[Path("examples/docs")],
+        python_sources=[Path("examples/src/client.py")],
+        typescript_sources=[Path("examples/src/types.ts")],
+        project_name="Full Tasks System",
+    )
+
+    # 4 (OpenAPI) + 1 (Markdown) + 3 (Python: 2 classes, 1 func) + 4 (TS: 1 type, 2 interfaces, 1 func) = 12 sections
+    assert len(manifest["sections"]) >= 10
+    engine = DocumentationEngine.from_index(output / "docs-index.json")
+
+    # Search for python method
+    py_res = engine.search_docs("create_task TaskClient", max_tokens=500)
+    assert py_res["results"]
+    assert any("TaskClient" in r["title"] for r in py_res["results"])
+
+    # Search for typescript interface
+    ts_res = engine.search_docs("TaskItem priority", max_tokens=500)
+    assert ts_res["results"]
+    assert any("TaskItem" in r["title"] for r in ts_res["results"])
+
+    small_text = (output / "llms-small.txt").read_text(encoding="utf-8")
+    assert "class TaskClient" in small_text or "TaskItem" in small_text
+
+
+def test_directory_scan_ignores_vendor_and_hidden_dirs(tmp_path):
+    # Setup vendor and hidden directories with mock files
+    src_dir = tmp_path / "project"
+    src_dir.mkdir()
+    (src_dir / "valid.py").write_text("def valid_func() -> None: pass\n", encoding="utf-8")
+    (src_dir / "valid.ts").write_text("export function validTs(): void {}\n", encoding="utf-8")
+    (src_dir / "valid.md").write_text("# Valid Doc\nValid content.\n", encoding="utf-8")
+
+    node_modules = src_dir / "node_modules" / "pkg"
+    node_modules.mkdir(parents=True)
+    (node_modules / "vendor.ts").write_text("export function vendorTs(): void {}\n", encoding="utf-8")
+
+    venv = src_dir / ".venv" / "lib"
+    venv.mkdir(parents=True)
+    (venv / "vendor.py").write_text("def venv_func() -> None: pass\n", encoding="utf-8")
+
+    hidden = src_dir / ".hidden_docs"
+    hidden.mkdir()
+    (hidden / "hidden.md").write_text("# Hidden\nHidden content.\n", encoding="utf-8")
+
+    py_sections = extract_python_sections([src_dir])
+    assert len(py_sections) == 1
+    assert py_sections[0].title == "def valid_func"
+
+    ts_sections = extract_typescript_sections([src_dir])
+    assert len(ts_sections) == 1
+    assert ts_sections[0].title == "function validTs"
+
+    out = tmp_path / "out_ignore"
+    manifest = build_artifacts(
+        output_directory=out,
+        markdown_directories=[src_dir],
+        python_sources=[src_dir],
+        typescript_sources=[src_dir],
+    )
+    titles = {s["title"] for s in manifest["sections"]}
+    assert "def valid_func" in titles
+    assert "function validTs" in titles
+    assert "Valid Doc" in titles
+    assert "def venv_func" not in titles
+    assert "function vendorTs" not in titles
+    assert "Hidden" not in titles

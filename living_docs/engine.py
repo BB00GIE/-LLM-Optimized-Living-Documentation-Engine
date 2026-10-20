@@ -265,10 +265,34 @@ def _clean_markdown(text: str) -> str:
     return cleaned + ("\n" if cleaned else "")
 
 
+IGNORED_DIRS = frozenset({
+    "node_modules",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+})
+
+
+def _is_ignored_path(path: Path) -> bool:
+    return any(
+        part in IGNORED_DIRS or (part.startswith(".") and part != ".")
+        for part in path.parts[:-1]
+    )
+
+
 def _markdown_sections(directories: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     for directory in directories:
-        for source in sorted((*directory.rglob("*.md"), *directory.rglob("*.mdx"))):
+        sources = [
+            source
+            for source in (*directory.rglob("*.md"), *directory.rglob("*.mdx"))
+            if not _is_ignored_path(source)
+        ]
+        for source in sorted(sources):
             content = _clean_markdown(source.read_text(encoding="utf-8"))
             if not content:
                 continue
@@ -315,6 +339,8 @@ def build_artifacts(
     output_directory: Path,
     openapi_files: list[Path] | None = None,
     markdown_directories: list[Path] | None = None,
+    python_sources: list[Path] | None = None,
+    typescript_sources: list[Path] | None = None,
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
@@ -324,6 +350,12 @@ def build_artifacts(
     for path in openapi_files or []:
         sections.extend(_openapi_sections(path, encoding_name=encoding_name))
     sections.extend(_markdown_sections(markdown_directories or [], encoding_name=encoding_name))
+    if python_sources:
+        from living_docs.ast_parser import extract_python_sections
+        sections.extend(extract_python_sections(python_sources, encoding_name=encoding_name))
+    if typescript_sources:
+        from living_docs.ast_parser import extract_typescript_sections
+        sections.extend(extract_typescript_sections(typescript_sources, encoding_name=encoding_name))
     if not sections:
         raise ValueError("No documentation sections were found in the provided sources")
 
@@ -366,9 +398,19 @@ def build_artifacts(
             index_lines.append(f"  {section.description}")
     (output_directory / "llms.txt").write_text("\n".join(index_lines) + "\n", encoding="utf-8")
 
+    def _section_priority(s: Section) -> int:
+        if s.kind == "api":
+            return 0
+        if s.kind == "code":
+            return 1
+        return 2
+
     small_sections: list[Section] = []
     accumulated_tokens = header_tokens
-    priority_sections = sorted(sections, key=lambda section: (section.kind != "api", section.path, section.id))
+    priority_sections = sorted(
+        sections,
+        key=lambda section: (_section_priority(section), section.path, section.id),
+    )
     for section in priority_sections:
         if accumulated_tokens + section.tokens + 2 <= small_token_budget:
             candidate_text = small_header + "\n".join(item.content.rstrip() for item in (*small_sections, section)) + "\n"

@@ -23,14 +23,15 @@ This project defines a pipeline and runtime to produce documentation optimized f
   - Resource: `docs://manifest` (index + token metrics)
   - Tools: `search_docs(query, max_tokens)`, `get_api_spec(endpoint_path, method)` (deterministic, schema-first)
   - Transports: both local standard I/O (`stdio`) and remote Server-Sent Events (`sse`)
+- AST-aware source code extraction for Python (`ast`) and TypeScript (`interface`, `type`, `function`, `class` signatures with JSDoc).
 - Hybrid search (BM25 + Dense Vectors via Reciprocal Rank Fusion) and whole-section preservation with strict token budgeting.
 
-The current implementation ingests OpenAPI 3.x and Markdown/MDX. Language AST extraction and agent evaluation benchmarks remain planned work.
+The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python and TypeScript. Automated agent evaluation benchmarks remain planned work.
 
 ## High‑level Architecture
 
-Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & Compression
-(Noise stripping, signature extraction, token-budgeting) → Dual outputs:
+Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transformation & Compression
+(Noise stripping, signature extraction, token-budgeting, vector embeddings) → Dual outputs:
 - Static files (`/llms*.txt`) for fast context ingestion
 - MCP server for interactive, token-budgeted exploration
 
@@ -64,13 +65,14 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
 
 ### Implemented
 - OpenAPI 3.x and Markdown/MDX ingestion
+- Python AST extraction (`ast`) for classes, typed attributes, and function/method signatures
+- TypeScript AST extraction for `interface`, `type`, `function`, and `class` declarations with JSDoc
 - Static artifacts generation (`/llms.txt`, `/llms-small.txt`, `/llms-full.txt`)
 - Hybrid search (BM25 + Dense Vectors) with Reciprocal Rank Fusion
 - Multi-tokenizer support (`cl100k_base` and `o200k_base`)
 - Dual MCP server transports: stdio and SSE (HTTP) with manifest, search, and exact API lookup
 
-### Next (Phase 3 & 4)
-- Add TypeScript/Python AST extraction and language-aware semantic chunking directly from source files
+### Next (Phase 4)
 - Automated token reduction benchmark suite (>60% reduction target)
 - Agent task success evaluation harness and MCP conformance verification
 
@@ -80,7 +82,7 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
 ## Suggested Tech Stack
 
 - Runtime: Python 3.11+ and the official MCP SDK
-- Parsing: PyYAML for OpenAPI YAML, built-in JSON and Markdown/MDX processing
+- Parsing: PyYAML for OpenAPI YAML, Python `ast`, TypeScript regex/AST parser, built-in JSON/MDX processing
 - Storage & search: SQLite FTS5 (BM25) + embedded vector similarity
 - Protocol: official MCP SDK for Python (`stdio` and `sse` transports with Starlette/Uvicorn)
 - Tokenization: tiktoken (`cl100k_base` and `o200k_base`)
@@ -89,10 +91,10 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
 
 - Python 3.11+ is required.
 - Install the project and development dependencies with `python -m pip install -e ".[dev]"`.
-- Build artifacts from the included sample sources:
+- Build artifacts from the included sample sources (OpenAPI, Markdown, Python, and TypeScript):
 
   ```powershell
-  living-docs build --openapi examples\openapi.yaml --markdown examples\docs --output build --project-name "Example Tasks API"
+  living-docs build --openapi examples\openapi.yaml --markdown examples\docs --python examples\src\client.py --typescript examples\src\types.ts --output build --project-name "Example Tasks API"
   ```
 
   This creates `llms.txt`, `llms-small.txt`, `llms-full.txt`, and `docs-index.json`.
@@ -110,7 +112,7 @@ Sources (OpenAPI and Markdown repos) → Ingestion → IR → Transformation & C
 
 - Run the tests with `python -m pytest`.
 
-Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); TypeScript/Python AST extraction and agent evaluation are the next milestones.
+Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); automated agent evaluation benchmarks are the next milestone.
 
 ## License & Contact
 
