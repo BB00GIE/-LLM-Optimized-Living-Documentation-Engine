@@ -259,3 +259,25 @@ To query the database directly in Python:
 ```powershell
 py -3.10 -c "import sqlite3; conn = sqlite3.connect('verification_results/verification.db'); print(conn.execute('SELECT scenario, reduction_pct, latency_ms FROM verification_runs').fetchall())"
 ```
+
+---
+
+## Production Readiness & Portfolio TODO List
+
+The following checklist tracks remaining items to polish before publishing this repository to a public portfolio:
+
+### 1. Portfolio Polish & Presentation
+- [ ] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
+- [ ] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
+- [ ] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
+- [ ] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
+
+### 2. CI/CD & Automated Verification
+- [ ] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
+- [ ] **Build Status Badge:** Add a dynamic GitHub Actions workflow status badge at the top of the README.
+- [ ] **PyPI Packaging Metadata:** Complete author name, email, repository URLs, and topic classifiers in `pyproject.toml`.
+
+### 3. Production Deployment & Distribution
+- [ ] **Production Dockerfile:** Create a multi-stage, lightweight container image (`python:3.11-slim`) for running the living-docs MCP server over SSE (`0.0.0.0:8000`).
+- [ ] **Docker Compose Example:** Add a sample `docker-compose.yml` for running the documentation engine alongside agentic workflows.
+- [ ] **Static Edge Export Hook:** Add a deployment script/action to push `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt` directly to Cloudflare Pages, Vercel, or AWS S3.
