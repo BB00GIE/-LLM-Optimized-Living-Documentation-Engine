@@ -149,6 +149,33 @@ def extract_python_sections(paths: list[Path], encoding_name: str = "cl100k_base
     return sections
 
 
+def _extract_balanced_brace_block(text: str, start_index: int) -> tuple[str, int]:
+    if start_index >= len(text) or text[start_index] != "{":
+        return "", start_index
+    depth = 0
+    i = start_index
+    in_quote: str | None = None
+    while i < len(text):
+        char = text[i]
+        if in_quote:
+            if char == "\\" and i + 1 < len(text):
+                i += 2
+                continue
+            if char == in_quote:
+                in_quote = None
+        else:
+            if char in ('"', "'", "`"):
+                in_quote = char
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start_index : i + 1], i + 1
+        i += 1
+    return text[start_index:], len(text)
+
+
 def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     files: list[Path] = []
@@ -167,8 +194,8 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
         pattern = re.compile(
             r"(?:/\*\*(?P<jsdoc>[\s\S]*?)\*/\s*)?"
             r"export\s+(?:default\s+)?(?P<kind>interface|type|class|(?:async\s+)?function)\s+(?P<name>[A-Za-z0-9_$]+)"
-            r"(?P<signature>[^;{]+)?"
-            r"(?P<body>\{[\s\S]*?\n\}|=[^;]+;)?"
+            r"(?P<signature>[^;{=]+)?"
+            r"(?P<delimiter>[{=;])"
         )
 
         for match in pattern.finditer(text):
@@ -176,7 +203,16 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
             kind = match.group("kind")
             name = match.group("name")
             sig = (match.group("signature") or "").strip()
-            body = (match.group("body") or "").strip()
+            delim = match.group("delimiter")
+
+            delim_pos = match.start("delimiter")
+            if delim == "{":
+                body, _ = _extract_balanced_brace_block(text, delim_pos)
+            elif delim == "=":
+                semi_pos = text.find(";", delim_pos)
+                body = text[delim_pos : semi_pos + 1].strip() if semi_pos != -1 else text[delim_pos:].strip()
+            else:
+                body = ""
 
             clean_doc_lines = []
             for d_line in jsdoc.strip().splitlines():

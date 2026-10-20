@@ -326,7 +326,7 @@ def test_extract_python_ast_sections(tmp_path):
     assert "def query(sql: str, /, limit: int = 100) -> list[dict]" in pos_sec[0].content
 
 
-def test_extract_typescript_ast_sections():
+def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
     names = {s.title for s in sections}
     assert "type TaskPriority" in names
@@ -337,6 +337,16 @@ def test_extract_typescript_ast_sections():
     list_sec = next(s for s in sections if s.title == "async function listTasks")
     assert "Promise<TaskItem[]>" in list_sec.content
     assert "Fetch tasks filtered by completion status" in list_sec.description
+
+    # Nested braces in TypeScript interface should not be truncated
+    nested_file = tmp_path / "nested.ts"
+    nested_file.write_text(
+        "export interface DeepConfig {\n  nested: {\n    key: string;\n    count: number;\n  };\n  active: boolean;\n}\n",
+        encoding="utf-8",
+    )
+    nested_secs = extract_typescript_sections([nested_file])
+    assert "active: boolean;" in nested_secs[0].content
+    assert "count: number;" in nested_secs[0].content
 
 
 def test_builds_artifacts_with_code_sources(tmp_path):
