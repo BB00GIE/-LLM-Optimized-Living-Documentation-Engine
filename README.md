@@ -66,15 +66,14 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 ### Implemented
 - OpenAPI 3.x and Markdown/MDX ingestion
 - Python AST extraction (`ast`) for classes, typed attributes, and function/method signatures
-- TypeScript AST extraction for `interface`, `type`, `function`, and `class` declarations with JSDoc
+- TypeScript AST extraction for `interface`, `type`, `enum`, `function`, and `const` arrow function declarations with JSDoc
 - Static artifacts generation (`/llms.txt`, `/llms-small.txt`, `/llms-full.txt`)
 - Hybrid search (BM25 + Dense Vectors) with Reciprocal Rank Fusion
 - Multi-tokenizer support (`cl100k_base` and `o200k_base`)
 - Dual MCP server transports: stdio and SSE (HTTP) with manifest, search, and exact API lookup
-
-### Next (Phase 4)
-- Automated token reduction benchmark suite (>60% reduction target)
-- Agent task success evaluation harness and MCP conformance verification
+- Automated Token Efficiency Benchmark suite (>60% reduction target proven, achieving 61%–92%)
+- E2E Agent Evaluation Harness verifying zero invalid field errors and first-pass accuracy
+- Automated MCP Protocol Conformance Test Suite (validating resources, tools, error contracts)
 
 ### Long term
 - Ecosystem: exporters (SDKs), adapters for common docs stacks (mkdocs, swagger), and production deployment patterns
@@ -86,6 +85,31 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 - Storage & search: SQLite FTS5 (BM25) + embedded vector similarity
 - Protocol: official MCP SDK for Python (`stdio` and `sse` transports with Starlette/Uvicorn)
 - Tokenization: tiktoken (`cl100k_base` and `o200k_base`)
+
+## Verification & Commands
+
+- **Run Token Efficiency Benchmark**:
+  ```powershell
+  living-docs benchmark
+  ```
+  Measures token savings of Living Docs outputs against human HTML documentation (>90% reduction) and raw OpenAPI specs (>60% reduction).
+
+- **Run Agent Evaluation Harness**:
+  ```powershell
+  living-docs eval
+  ```
+  Tests E2E task execution accuracy and schema conformance across REST contracts, error guidance, and code signatures.
+
+- **Run MCP Protocol Conformance**:
+  ```powershell
+  living-docs conformance
+  ```
+  Validates resource URI formats, MIME types, tool schemas, and structured error boundaries.
+
+- **Run Full Automated Test Suite**:
+  ```powershell
+  python -m pytest -v
+  ```
 
 ## How to contribute
 
