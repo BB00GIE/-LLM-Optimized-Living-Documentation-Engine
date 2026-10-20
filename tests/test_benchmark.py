@@ -62,3 +62,14 @@ def test_benchmark_handles_path_level_metadata_and_empty_spec(tmp_path):
     empty_spec.write_text('{"openapi":"3.0.0","info":{"title":"E","version":"1"},"paths":{}}', encoding="utf-8")
     with pytest.raises(ValueError, match="No valid HTTP operations found"):
         run_token_efficiency_benchmark(custom_openapi_path=empty_spec)
+
+
+def test_benchmark_raises_filenotfound_on_missing_custom_files():
+    import pytest
+    from pathlib import Path
+
+    with pytest.raises(FileNotFoundError, match="HTML documentation file not found"):
+        run_token_efficiency_benchmark(custom_html_path=Path("non_existent_file.html"))
+
+    with pytest.raises(FileNotFoundError, match="OpenAPI specification file not found"):
+        run_token_efficiency_benchmark(custom_openapi_path=Path("non_existent_file.yaml"))

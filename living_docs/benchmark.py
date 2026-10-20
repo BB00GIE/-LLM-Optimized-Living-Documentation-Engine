@@ -183,16 +183,21 @@ def run_token_efficiency_benchmark(
     """Compare raw human/spec documentation against living-docs optimized outputs."""
     from living_docs.engine import _render_operation, _read_openapi
 
+    if custom_html_path is not None and not custom_html_path.exists():
+        raise FileNotFoundError(f"Custom HTML documentation file not found: {custom_html_path}")
+    if custom_openapi_path is not None and not custom_openapi_path.exists():
+        raise FileNotFoundError(f"Custom OpenAPI specification file not found: {custom_openapi_path}")
+
     html_content = (
         custom_html_path.read_text(encoding="utf-8")
-        if custom_html_path and custom_html_path.exists()
+        if custom_html_path
         else SAMPLE_HTML_DOCUMENTATION
     )
     raw_html_tokens = count_tokens(html_content, encoding_name=encoding_name)
 
     spec_doc = (
         _read_openapi(custom_openapi_path)
-        if custom_openapi_path and custom_openapi_path.exists()
+        if custom_openapi_path
         else SAMPLE_RAW_OPENAPI_SPEC
     )
 
