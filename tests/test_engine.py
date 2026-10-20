@@ -127,6 +127,9 @@ def test_search_docs_input_validation_boundaries(tmp_path):
     empty_res = engine.search_docs("   ")
     assert empty_res["error_code"] == "INVALID_QUERY"
 
+    none_res = engine.search_docs(None)  # type: ignore
+    assert none_res["error_code"] == "INVALID_QUERY"
+
     long_res = engine.search_docs("a" * 2001)
     assert long_res["error_code"] == "INVALID_QUERY"
     assert "2000" in long_res["message"]
@@ -136,6 +139,13 @@ def test_search_docs_input_validation_boundaries(tmp_path):
 
     high_tokens = engine.search_docs("tasks", max_tokens=50000)
     assert high_tokens["error_code"] == "INVALID_TOKEN_BUDGET"
+
+    # get_api_spec defensive type checking
+    none_path = engine.get_api_spec(None, "GET")  # type: ignore
+    assert none_path["error_code"] == "INVALID_PATH"
+
+    none_method = engine.get_api_spec("/api/tasks", None)  # type: ignore
+    assert none_method["error_code"] == "INVALID_METHOD"
 
 
 def test_embeddings_and_vector_similarity():

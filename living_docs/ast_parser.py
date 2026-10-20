@@ -8,6 +8,18 @@ from urllib.parse import quote
 from living_docs.engine import Section, count_tokens
 
 
+_TS_DECLARATION_PATTERN = re.compile(
+    r"(?:/\*\*(?P<jsdoc>[\s\S]*?)\*/\s*)?"
+    r"export\s+(?:default\s+)?(?P<kind>interface|type|class|enum|(?:async\s+)?function|const)\s+(?P<name>[A-Za-z0-9_$]+)"
+    r"(?P<signature>[^;{=]+)?"
+    r"(?P<delimiter>[{=;])"
+)
+_TS_ARROW_REGEX = re.compile(
+    r"=\s*(?:async\s*)?\((?:[^()]|\([^()]*\))*\)(?:\s*:\s*[^={]+)?\s*=>"
+)
+_JSDOC_LINE_CLEAN_REGEX = re.compile(r"^\s*\*\s?")
+
+
 def _format_py_arg(arg: ast.arg, default: ast.expr | None = None) -> str:
     type_str = f": {ast.unparse(arg.annotation)}" if arg.annotation else ""
     default_str = f" = {ast.unparse(default)}" if default else ""
@@ -235,15 +247,7 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
 
         rel = _resolve_clean_relative_path(file_path, root)
 
-        # Match JSDoc + exported declaration blocks
-        pattern = re.compile(
-            r"(?:/\*\*(?P<jsdoc>[\s\S]*?)\*/\s*)?"
-            r"export\s+(?:default\s+)?(?P<kind>interface|type|class|enum|(?:async\s+)?function|const)\s+(?P<name>[A-Za-z0-9_$]+)"
-            r"(?P<signature>[^;{=]+)?"
-            r"(?P<delimiter>[{=;])"
-        )
-
-        for match in pattern.finditer(text):
+        for match in _TS_DECLARATION_PATTERN.finditer(text):
             jsdoc = match.group("jsdoc") or ""
             kind = match.group("kind")
             name = match.group("name")
@@ -261,7 +265,7 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
 
             clean_doc_lines = []
             for d_line in jsdoc.strip().splitlines():
-                d_line = re.sub(r"^\s*\*\s?", "", d_line).strip()
+                d_line = _JSDOC_LINE_CLEAN_REGEX.sub("", d_line).strip()
                 if d_line:
                     clean_doc_lines.append(d_line)
             clean_doc = "\n".join(clean_doc_lines)
@@ -299,10 +303,7 @@ def extract_typescript_sections(paths: list[Path], encoding_name: str = "cl100k_
                 if body:
                     lines.extend(["```typescript", f"class {name}{sig} {body}", "```", ""])
             elif kind == "const":
-                arrow_match = re.match(
-                    r"=\s*(?:async\s*)?\((?:[^()]|\([^()]*\))*\)(?:\s*:\s*[^={]+)?\s*=>",
-                    body,
-                )
+                arrow_match = _TS_ARROW_REGEX.match(body)
                 if arrow_match:
                     arrow_sig = arrow_match.group(0).lstrip("=").rstrip("=>").strip()
                     full_sig = f"const {name} = {arrow_sig}"

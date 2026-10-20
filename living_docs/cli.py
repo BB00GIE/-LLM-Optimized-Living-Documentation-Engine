@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -69,6 +70,21 @@ def main() -> None:
     serve.add_argument("--port", type=int, default=8000, help="Port for SSE server")
     serve.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
 
+    benchmark = commands.add_parser("benchmark", help="Run token efficiency benchmarks comparing raw vs optimized docs")
+    benchmark.add_argument("--html", type=Path, default=None, help="Custom HTML web docs file to benchmark")
+    benchmark.add_argument("--spec", type=Path, default=None, help="Custom OpenAPI spec file (JSON or YAML) to benchmark")
+    benchmark.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
+
+    eval_cmd = commands.add_parser("eval", help="Run E2E agent evaluation scenarios against the living documentation engine")
+    eval_cmd.add_argument("--openapi", type=Path, default=Path("examples/openapi.yaml"), help="OpenAPI spec path")
+    eval_cmd.add_argument("--python", type=Path, default=Path("examples/src/client.py"), help="Python source path")
+    eval_cmd.add_argument("--typescript", type=Path, default=Path("examples/src/types.ts"), help="TypeScript source path")
+    eval_cmd.add_argument("--output", type=Path, default=Path("build/eval"), help="Output directory for index artifacts")
+    eval_cmd.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
+
+    conformance_cmd = commands.add_parser("conformance", help="Run automated MCP protocol conformance test suite")
+    conformance_cmd.add_argument("--index", type=Path, default=Path("build/docs-index.json"), help="Path to docs-index.json")
+
     args = parser.parse_args()
     if args.command == "build":
         manifest = build_artifacts(
@@ -90,6 +106,67 @@ def main() -> None:
             port=args.port,
             encoding_name=args.tokenizer,
         )
+    elif args.command == "benchmark":
+        from living_docs.benchmark import run_token_efficiency_benchmark
+
+        results = run_token_efficiency_benchmark(
+            custom_html_path=args.html,
+            custom_openapi_path=args.spec,
+            encoding_name=args.tokenizer,
+        )
+        print("\n=== Token Efficiency Benchmark Results ===")
+        for r in results:
+            print(f"\nScenario: {r.scenario}")
+            print(f"  Raw Documentation:        {r.raw_tokens} tokens")
+            print(f"  Living Docs Output:       {r.optimized_tokens} tokens")
+            print(f"  Tokens Saved:             {r.tokens_saved} tokens")
+            print(f"  Token Reduction:          {r.reduction_percentage:.1f}%")
+            print(f"  Complete Schema Verified: {'YES' if r.schema_preserved else 'NO'}")
+        print("\n==========================================\n")
+    elif args.command == "eval":
+        from living_docs.eval_harness import evaluate_living_docs_engine
+
+        report = evaluate_living_docs_engine(
+            output_dir=args.output,
+            openapi_path=args.openapi,
+            python_src_path=args.python if args.python.exists() else None,
+            typescript_src_path=args.typescript if args.typescript.exists() else None,
+            encoding_name=args.tokenizer,
+        )
+        print("\n=== Living Docs Agent Evaluation Report ===")
+        print(f"Total Tasks:          {report.total_tasks}")
+        print(f"Passed Tasks:         {report.passed_tasks}")
+        print(f"First-Pass Accuracy:  {report.first_pass_accuracy:.1f}%")
+        print(f"Tokens Consumed:      {report.total_tokens_consumed} tokens")
+        for r in report.results:
+            status_str = "PASS" if r.passed else "FAIL"
+            print(f"  [{status_str}] {r.task_id}: {r.description} ({r.tokens_consumed} tokens)")
+            for err in r.errors:
+                print(f"         Error: {err}")
+        print("\n===========================================\n")
+        if report.first_pass_accuracy < 90.0:
+            sys.exit(1)
+    elif args.command == "conformance":
+        import asyncio
+        from living_docs.conformance import run_mcp_conformance_suite
+
+        if not args.index.exists():
+            print(f"Building temporary index at build/docs-index.json...")
+            build_artifacts(
+                output_directory=args.index.parent,
+                openapi_files=[Path("examples/openapi.yaml")],
+            )
+
+        report = asyncio.run(run_mcp_conformance_suite(args.index))
+        print("\n=== MCP Protocol Conformance Report ===")
+        print(f"Checks Passed: {report.passed_checks} / {report.total_checks}")
+        print(f"Status:        {'CONFORMANT' if report.all_passed else 'NON-CONFORMANT'}")
+        for c in report.checks:
+            mark = "PASS" if c.passed else "FAIL"
+            print(f"  [{mark}] {c.name}: {c.message}")
+        print("\n=======================================\n")
+        if not report.all_passed:
+            sys.exit(1)
 
 
 if __name__ == "__main__":
