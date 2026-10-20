@@ -86,7 +86,52 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 - Protocol: official MCP SDK for Python (`stdio` and `sse` transports with Starlette/Uvicorn)
 - Tokenization: tiktoken (`cl100k_base` and `o200k_base`)
 
-## Verification & Commands
+## Testing & Verification
+
+To verify that the living documentation engine achieves its architectural promises in real-world agentic workflows, the system undergoes a 4-step empirical verification suite alongside automated tests:
+
+### Step 1: Ingesting a Real-World Production API
+- **Goal:** Prove that the ingestion pipeline processes complex, multi-thousand-line production OpenAPI specifications with deep reference structures.
+- **Method:**
+  1. Download an official production OpenAPI spec (e.g. PostHog, Stripe, or GitHub REST API).
+  2. Execute `living-docs build`:
+     ```powershell
+     living-docs build --openapi production_spec.yaml --output build/
+     ```
+  3. Verify that all `$ref` pointers resolve into self-contained contracts and inspect `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt`.
+
+### Step 2: Head-to-Head Token Benchmark on Live Docs
+- **Goal:** Quantify and prove the **>60% to 90% token reduction** claim against live human documentation.
+- **Method:**
+  1. Measure full token weight of a human-targeted web documentation page (including layout wrappers, navigation trees, scripts, styling, and conversational prose).
+  2. Run the token efficiency benchmark tool:
+     ```powershell
+     living-docs benchmark --html sample_page.html --spec sample_spec.json
+     ```
+  3. Verify that the living docs schema output preserves 100% of required fields, types, and constraints while reducing total context token count by over 70%–92%.
+
+### Step 3: Live MCP Integration with AI Agents (Cursor / Claude Desktop / Custom Agents)
+- **Goal:** Prove that autonomous coding agents interactively discover, query, and call APIs with zero visual overhead.
+- **Method:**
+  1. Launch the MCP server over stdio or SSE:
+     ```powershell
+     living-docs serve --index build/docs-index.json --transport stdio
+     ```
+  2. Register the living-docs server in your client configuration (e.g. `.cursor/mcp.json` or Claude Desktop config).
+  3. Prompt the agent with an end-to-end integration task:
+     > *"Query the living docs MCP server to find how to create a batch event in the API, and write a runnable Python script to execute it."*
+  4. Verify that the agent queries `docs://manifest`, calls `get_api_spec`, and generates syntactically valid code on the first attempt without hallucinating parameter names.
+
+### Step 4: Robustness & Adversarial Chaos Testing
+- **Goal:** Ensure the engine survives adversarial agent inputs, non-existent routes, and high-concurrency workloads.
+- **Method:**
+  1. **Hallucinated Route Handling:** Request non-existent endpoints (e.g. `/api/v1/invalid_route`). Assert that the engine returns structured `RESOURCE_NOT_FOUND` responses with valid close-match path suggestions.
+  2. **Multi-Threaded Concurrency:** Dispatch 50+ parallel tool requests across concurrent worker threads to the SSE endpoint to verify zero SQLite deadlocks or connection drops.
+  3. **Strict Token Ceiling Enforcement:** Invoke `search_docs` under strict budgets (`max_tokens=200`, `500`, `1000`) and verify via `tiktoken` that no returned payload exceeds the budget.
+
+---
+
+### Automated Verification Commands
 
 - **Run Token Efficiency Benchmark**:
   ```powershell
