@@ -1,5 +1,8 @@
 # LLM‑Optimized Living Documentation Engine
 
+[![CI](https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 TL;DR — A documentation architecture and runtime that transforms human‑centric docs and API specs into compact, machine‑native artifacts (static /llms.txt files and a Model Context Protocol (MCP) server) so LLMs and agentic systems can discover, reason about, and call APIs with minimal token overhead.
 
 Status: Early implementation — the first local build and MCP stdio vertical slice is available.
@@ -185,7 +188,10 @@ Current boundaries: external OpenAPI references are rejected; cyclic local refer
 
 ## License & Contact
 
-Add your chosen license file (e.g., LICENSE.md) and maintainers/contact info here.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+- Author: Brandon Elmore
+- Repository: [BB00GIE/-LLM-Optimized-Living-Documentation-Engine](https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine)
 
 ## My Testing
 
@@ -267,15 +273,15 @@ py -3.10 -c "import sqlite3; conn = sqlite3.connect('verification_results/verifi
 The following checklist tracks remaining items to polish before publishing this repository to a public portfolio:
 
 ### 1. Portfolio Polish & Presentation
-- [ ] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
+- [x] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
 - [ ] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
 - [ ] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
 - [ ] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
 
 ### 2. CI/CD & Automated Verification
-- [ ] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
-- [ ] **Build Status Badge:** Add a dynamic GitHub Actions workflow status badge at the top of the README.
-- [ ] **PyPI Packaging Metadata:** Complete author name, email, repository URLs, and topic classifiers in `pyproject.toml`.
+- [x] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
+- [x] **Build Status Badge:** Add a dynamic GitHub Actions workflow status badge at the top of the README.
+- [x] **PyPI Packaging Metadata:** Complete author name, email, repository URLs, and topic classifiers in `pyproject.toml`.
 
 ### 3. Production Deployment & Distribution
 - [ ] **Production Dockerfile:** Create a multi-stage, lightweight container image (`python:3.11-slim`) for running the living-docs MCP server over SSE (`0.0.0.0:8000`).
