@@ -31,7 +31,84 @@ This project defines a pipeline and runtime to produce documentation optimized f
 
 The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python and TypeScript. Automated agent evaluation benchmarks remain planned work.
 
+## Try It in 30 Seconds
+
+Get from zero to machine-optimized living docs in three commands:
+
+```bash
+# 1. Clone & install in editable mode with development dependencies
+git clone https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine.git
+cd -LLM-Optimized-Living-Documentation-Engine
+pip install -e ".[dev]"
+
+# 2. Build machine documentation artifacts from example sources
+living-docs build \
+  --openapi examples/openapi.yaml \
+  --markdown examples/docs \
+  --python examples/src/client.py \
+  --typescript examples/src/types.ts \
+  --output build \
+  --project-name "Example Tasks API"
+
+# 3. Verify token savings and start the MCP server
+living-docs benchmark
+living-docs serve --index build/docs-index.json --transport stdio
+```
+
+*(On Windows PowerShell, use backslashes `\` or single-line commands without bash line continuations).*
+
 ## High‑level Architecture
+
+```mermaid
+flowchart TD
+    subgraph Sources["1. Heterogeneous Source Ingestion"]
+        A1["OpenAPI 3.x Specs<br/>(YAML / JSON)"]
+        A2["Markdown / MDX<br/>(Docs, Guides, Articles)"]
+        A3["Source Code ASTs<br/>(Python classes/funcs, TS types/interfaces)"]
+    end
+
+    subgraph Engine["2. Transformation & Compaction Pipeline"]
+        B1["AST Parser & Schema Normalizer<br/>($ref resolution, cycle breaking)"]
+        B2["Noise Stripping & Deduplication<br/>(Drop CSS, DOM chrome, navigation prose)"]
+        B3["Token Budgeting & Preservation Engine<br/>(cl100k_base / o200k_base, whole-section guard)"]
+        B4["Hybrid Search Indexer<br/>(SQLite FTS5 BM25 + Dense Vectors with RRF)"]
+        B1 --> B2 --> B3 --> B4
+    end
+
+    subgraph Outputs["3. Dual Output Delivery"]
+        direction TB
+        subgraph Static["Static Machine Artifacts"]
+            C1["/llms.txt (Annotated Manifest)"]
+            C2["/llms-small.txt (Core Signatures)"]
+            C3["/llms-full.txt (Preload Reference)"]
+            C4["docs-index.json (Offline Index)"]
+        end
+        subgraph MCP["Dynamic MCP Server Runtime"]
+            D1["Resource: docs://manifest"]
+            D2["Tool: search_docs(query, max_tokens)"]
+            D3["Tool: get_api_spec(path, method)"]
+            D4["Transports: stdio | SSE (HTTP)"]
+        end
+    end
+
+    A1 --> B1
+    A2 --> B1
+    A3 --> B1
+
+    B3 --> Static
+    B4 --> MCP
+
+    subgraph Agents["Autonomous Consumers"]
+        E1["IDE Agents (Cursor, Copilot, Windsurf)"]
+        E2["Desktop Agents (Claude Desktop)"]
+        E3["Local LLMs (Ollama, vLLM)"]
+    end
+
+    Static -.-> E3
+    MCP <==> E1
+    MCP <==> E2
+    MCP <==> E3
+```
 
 Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transformation & Compression
 (Noise stripping, signature extraction, token-budgeting, vector embeddings) → Dual outputs:
@@ -184,6 +261,71 @@ To verify that the living documentation engine achieves its architectural promis
 
 - Run the tests with `python -m pytest`.
 
+## IDE & Agent Configuration
+
+Connect your AI coding assistants directly to the Living Docs MCP server for interactive API discovery and schema retrieval.
+
+### Cursor (`.cursor/mcp.json`)
+
+Add the following to `.cursor/mcp.json` in your workspace or global Cursor settings:
+
+```json
+{
+  "mcpServers": {
+    "living-docs": {
+      "command": "living-docs",
+      "args": [
+        "serve",
+        "--index",
+        "build/docs-index.json",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
+*For a remote SSE server running on `http://127.0.0.1:8000`:*
+
+```json
+{
+  "mcpServers": {
+    "living-docs-remote": {
+      "url": "http://127.0.0.1:8000/sse"
+    }
+  }
+}
+```
+
+### Claude Desktop (`claude_desktop_config.json`)
+
+Add the living-docs server to your Claude Desktop configuration file:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "living-docs": {
+      "command": "living-docs",
+      "args": [
+        "serve",
+        "--index",
+        "/absolute/path/to/build/docs-index.json",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
+Once connected, your agent automatically has access to:
+- `docs://manifest` — Table of contents with section IDs, routes, and token sizes.
+- `search_docs` — Hybrid search for conceptual guides and API descriptions within token limits.
+- `get_api_spec` — Complete, deterministic parameter and response schemas for specific endpoints.
+
 Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); automated agent evaluation benchmarks are the next milestone.
 
 ## License & Contact
@@ -331,9 +473,9 @@ The following checklist tracks remaining items to polish before publishing this 
 
 ### 1. Portfolio Polish & Presentation
 - [x] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
-- [ ] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
-- [ ] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
-- [ ] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
+- [x] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
+- [x] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
+- [x] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
 
 ### 2. CI/CD & Automated Verification
 - [x] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
