@@ -7,15 +7,37 @@ name = "living-docs-engine"
 version = "0.1.0"
 description = "Generate machine-optimized documentation artifacts and serve them over MCP."
 readme = "README.md"
-requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Brandon Elmore", email = "47788498+BB00GIE@users.noreply.github.com" }
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Code Generators",
+]
 dependencies = [
     "mcp>=1.0,<2",
     "PyYAML>=6.0",
     "tiktoken>=0.7",
 ]
 
+[project.urls]
+Homepage = "https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine"
+Repository = "https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine"
+
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4.0",
+]
 
 [project.scripts]
 living-docs = "living_docs.cli:main"
@@ -25,4 +47,12 @@ include = ["living_docs*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
 

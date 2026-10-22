@@ -155,7 +155,7 @@ def main() -> None:
         from living_docs.conformance import run_mcp_conformance_suite
 
         if not args.index.exists():
-            print(f"Building temporary index at build/docs-index.json...")
+            print("Building temporary index at build/docs-index.json...")
             build_artifacts(
                 output_directory=args.index.parent,
                 openapi_files=[Path("examples/openapi.yaml")],
