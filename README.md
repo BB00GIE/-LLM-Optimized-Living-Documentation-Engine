@@ -83,7 +83,7 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 
 ## Suggested Tech Stack
 
-- Runtime: Python 3.11+ and the official MCP SDK
+- Runtime: Python 3.10+ and the official MCP SDK
 - Parsing: PyYAML for OpenAPI YAML, Python `ast`, TypeScript regex/AST parser, built-in JSON/MDX processing
 - Storage & search: SQLite FTS5 (BM25) + embedded vector similarity
 - Protocol: official MCP SDK for Python (`stdio` and `sse` transports with Starlette/Uvicorn)
@@ -161,7 +161,7 @@ To verify that the living documentation engine achieves its architectural promis
 
 ## How to contribute
 
-- Python 3.11+ is required.
+- Python 3.10+ is required.
 - Install the project and development dependencies with `python -m pip install -e ".[dev]"`.
 - Build artifacts from the included sample sources (OpenAPI, Markdown, Python, and TypeScript):
 
