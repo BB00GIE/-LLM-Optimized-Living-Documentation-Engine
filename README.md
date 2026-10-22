@@ -216,6 +216,63 @@ Every single test run, latency measurement, token calculation, and pass/fail ass
 
 ### Empirical Verification Results
 
+#### Real-world retrieval benchmark: GitHub REST API
+
+A separate benchmark used the official GitHub REST OpenAPI description and the official GitHub REST documentation, pinned to specific upstream commits. With `cl100k_base`, the run indexed 1,242 API operations and 297 non-empty Markdown/MDX documentation sections. It checked all 1,242 supported operations and verified that all 7,218 extracted parameter, request, and response schema blocks appeared in their generated operation sections.
+
+| Comparison | Raw tokens | Living Docs tokens | Reduction |
+| :--- | ---: | ---: | ---: |
+| Entire OpenAPI spec vs. all generated API sections | 2,620,167 | 3,194,022 | **-21.90%** (the generated corpus is larger) |
+| Official REST Markdown/MDX vs. cleaned documentation sections | 128,223 | 86,564 | **32.49%** |
+| Combined raw corpus vs. `llms-full.txt` | 2,748,390 | 3,280,594 | **-19.36%** (the full artifact is larger) |
+| Combined raw corpus vs. `llms-small.txt` | 2,748,390 | 3,993 | **99.85%**, but only five API operations fit |
+
+The full-corpus results show an important limitation: the engine is not necessarily a compression format for an entire API. Rendering every endpoint can expand shared OpenAPI references, making `llms-full.txt` larger than the source. The compact `llms-small.txt` is a selected subset, not a complete replacement for the API reference.
+
+The more representative agent workflow is **on-demand retrieval**. An agent typically needs the contract for the endpoint relevant to its current task, rather than every operation in the API. Exact lookup was exercised for all 1,242 operations; its response averaged **2,916 tokens** (median **808**, p95 **12,732**) compared with **2,620,167 tokens** for the full raw OpenAPI document. That is **99.89% fewer documentation tokens on average** than loading the entire spec for one endpoint question. The largest individual lookup was 121,009 tokens, so endpoint size varies substantially.
+
+A concrete check used `GET /repos/{owner}/{repo}/issues` for the task “find an open issue in a repository.” The engine returned the endpoint contract in **16,733 tokens**, or **99.36% fewer tokens** than the complete spec. The contract notes that this endpoint also returns pull requests. A read-only request to the public VS Code repository returned 10 open records; filtering out the six pull requests identified four issues. This checks that the retrieved guidance mattered to the real task, not just that the endpoint was present.
+
+This is evidence for reduced **documentation context per focused lookup**, not a measurement of total end-to-end model token usage or task accuracy across agents. Prompt, conversation, tool overhead, and any additional lookups also consume tokens. Tasks requiring broad cross-endpoint context may have smaller savings. The official human-docs comparison uses Markdown/MDX source, not rendered web pages or their layout chrome.
+
+The run's detailed token counts, validation results, source revisions, and hashes are recorded in `build/real-world-benchmark/report.json` and `build/real-world-benchmark/provenance.json`; generated artifacts are under `build/real-world-benchmark/engine-output/`. These are local benchmark outputs and are not included in the repository.
+
+**Behavioral takeaway:** the earlier full-corpus comparison asks whether the whole API can be made smaller, and this benchmark shows that the answer is not always yes. For agents, the better behavior is to keep the complete index available for discovery but retrieve only the relevant endpoint contract as needed. That avoids paying the full-spec context cost on every focused task while preserving the detailed contract for the endpoint actually used.
+
+#### Human & Narrative Documentation Benchmarks
+
+To evaluate token efficiency on prose and developer documentation rather than structured OpenAPI specs, we tested two real-world document scenarios using the official GitHub REST documentation guides and live web endpoints (tokenized with `cl100k_base`):
+
+##### 1. Live Web Scrape vs. Cleaned Engine Document (Noise Removal)
+When an agent scrapes or downloads live web documentation pages, modern web frameworks inject massive layout overhead (navigation sidebars, search indexes, CSS styles, React hydrate state, SVG icons, and footer links). We tested the official live guide [*Getting started with the REST API*](https://docs.github.com/en/rest/using-the-rest-api/getting-started-with-the-rest-api):
+
+| Format | Tokens (`cl100k_base`) | Token Reduction % | Preserved Content |
+| :--- | ---: | ---: | :--- |
+| **Raw Web HTML** (scraped via HTTP) | 191,017 | *Baseline* | Full DOM tree, scripts, styles, sidebar tree, site chrome |
+| **Raw Source Markdown** (from repo) | 10,722 | **94.4%** | Pure prose, frontmatter metadata, MDX tags |
+| **Living Docs Cleaned Document** | 9,900 | **94.8% vs HTML**<br>(7.7% vs Markdown) | Cleaned prose, curl examples, auth headers, schema constraints |
+
+*Fidelity Verification:* 100% of actionable technical instructions were preserved: every `curl` snippet, `Authorization: Bearer` pattern, `X-GitHub-Api-Version` header, `Accept` MIME type, and endpoint path (`/repos/{owner}/{repo}/issues`) remained intact while eliminating ~181,000 tokens of non-actionable web noise.
+
+##### 2. Targeted Document Search vs. Full Corpus Ingestion (Selective Retrieval)
+When an agent needs an answer to a conceptual or policy question (e.g., *"What are the artifact retention limits and expiration policies?"*), dumping the whole documentation library overwhelms the context window. We queried the engine's hybrid index (`search_docs`) across all 297 indexed documentation files under a strict 1,500 token ceiling:
+
+| Documentation Ingestion Strategy | Context Tokens | Token Reduction % | Retrieved Content & Accuracy |
+| :--- | ---: | ---: | :--- |
+| **Full Documentation Corpus Dump** | 86,564 | *Baseline* | Ingesting all 297 documentation guide files into context |
+| **Living Docs `search_docs` (budget = 1,500)** | 1,466 | **98.31%** | Top 4 matching policy sections returned within strict budget ceiling |
+
+*Matched Sections:*
+1. `GET /organizations/{org}/actions/cache/retention-limit`
+2. `GET /enterprises/{enterprise}/actions/cache/retention-limit`
+3. `GET /orgs/{org}/actions/permissions/artifact-and-log-retention`
+4. `/releases/releases.md`
+
+##### 3. Key Findings on Information Fidelity & Trade-Offs
+- **Endpoint Specs & Cleaned Docs (100% Complete):** Parameter types, required constraints, status codes, and code blocks are preserved with zero truncation.
+- **Whole-Section Preservation Rule:** The engine refuses to slice code blocks or JSON schemas in half across arbitrary token boundaries. If a single document exceeds `max_tokens`, it will prioritize smaller matching sections rather than returning broken syntax. For large multi-page conceptual monoliths, agents should provide a higher `max_tokens` budget or organize source docs with clear section headers.
+- **Optimal Agent Architecture (IDE & Local LLMs / Ollama):** For tools like Cursor, Claude Desktop, or local models via Ollama, selective tool calling (`get_api_spec` and `search_docs`) prevents context-window saturation and keeps generation latency low by avoiding raw spec and web page dumps.
+
 The table below reflects the exact data queried directly from the generated SQLite database (`verification_results/verification.db`):
 
 | Step | Scenario | Raw Tokens | Living Docs Tokens | Token Reduction % | Latency | Status |
