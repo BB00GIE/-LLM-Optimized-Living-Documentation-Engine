@@ -285,13 +285,17 @@ def test_mcp_stdio_exposes_manifest_and_tools(tmp_path):
 
 
 def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
+    import socket
     from mcp import ClientSession
     from mcp.client.sse import sse_client
 
     output = tmp_path / "out_sse"
     build_artifacts(output, openapi_files=[Path("examples/openapi.yaml")])
 
-    port = 8991
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+
     server, _ = create_mcp_server(output / "docs-index.json", host="127.0.0.1", port=port)
     config = uvicorn.Config(server.sse_app(), host="127.0.0.1", port=port, log_level="error")
     uv_server = uvicorn.Server(config)
