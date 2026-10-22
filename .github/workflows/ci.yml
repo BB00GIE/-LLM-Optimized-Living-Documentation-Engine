@@ -37,6 +37,7 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Lint codebase with ruff
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: |
           python -m ruff check living_docs tests
 
