@@ -33,6 +33,57 @@ The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python 
 
 ## High‑level Architecture
 
+```mermaid
+flowchart TD
+    subgraph Sources["1. Heterogeneous Source Ingestion"]
+        A1["OpenAPI 3.x Specs<br/>(YAML / JSON)"]
+        A2["Markdown / MDX<br/>(Docs, Guides, Articles)"]
+        A3["Source Code ASTs<br/>(Python classes/funcs, TS types/interfaces)"]
+    end
+
+    subgraph Engine["2. Transformation & Compaction Pipeline"]
+        B1["AST Parser & Schema Normalizer<br/>($ref resolution, cycle breaking)"]
+        B2["Noise Stripping & Deduplication<br/>(Drop CSS, DOM chrome, navigation prose)"]
+        B3["Token Budgeting & Preservation Engine<br/>(cl100k_base / o200k_base, whole-section guard)"]
+        B4["Hybrid Search Indexer<br/>(SQLite FTS5 BM25 + Dense Vectors with RRF)"]
+        B1 --> B2 --> B3 --> B4
+    end
+
+    subgraph Outputs["3. Dual Output Delivery"]
+        direction TB
+        subgraph Static["Static Machine Artifacts"]
+            C1["/llms.txt (Annotated Manifest)"]
+            C2["/llms-small.txt (Core Signatures)"]
+            C3["/llms-full.txt (Preload Reference)"]
+            C4["docs-index.json (Offline Index)"]
+        end
+        subgraph MCP["Dynamic MCP Server Runtime"]
+            D1["Resource: docs://manifest"]
+            D2["Tool: search_docs(query, max_tokens)"]
+            D3["Tool: get_api_spec(path, method)"]
+            D4["Transports: stdio | SSE (HTTP)"]
+        end
+    end
+
+    A1 --> B1
+    A2 --> B1
+    A3 --> B1
+
+    B3 --> Static
+    B4 --> MCP
+
+    subgraph Agents["Autonomous Consumers"]
+        E1["IDE Agents (Cursor, Copilot, Windsurf)"]
+        E2["Desktop Agents (Claude Desktop)"]
+        E3["Local LLMs (Ollama, vLLM)"]
+    end
+
+    Static -.-> E3
+    MCP <==> E1
+    MCP <==> E2
+    MCP <==> E3
+```
+
 Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transformation & Compression
 (Noise stripping, signature extraction, token-budgeting, vector embeddings) → Dual outputs:
 - Static files (`/llms*.txt`) for fast context ingestion
