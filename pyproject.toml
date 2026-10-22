@@ -48,3 +48,7 @@ include = ["living_docs*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
