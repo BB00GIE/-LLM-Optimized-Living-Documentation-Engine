@@ -286,6 +286,7 @@ def test_mcp_stdio_exposes_manifest_and_tools(tmp_path):
 
 def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
     import socket
+    import time
     from mcp import ClientSession
     from mcp.client.sse import sse_client
 
@@ -303,7 +304,17 @@ def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
     thread.start()
 
     async def exercise_sse():
-        await asyncio.sleep(0.5)
+        deadline = time.time() + 5.0
+        connected = False
+        while time.time() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.1):
+                    connected = True
+                    break
+            except OSError:
+                await asyncio.sleep(0.02)
+        assert connected, "SSE server failed to start within 5.0s"
+
         async with sse_client(f"http://127.0.0.1:{port}/sse") as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
@@ -316,6 +327,7 @@ def test_mcp_sse_transport_exposes_tools_and_manifest(tmp_path):
         asyncio.run(exercise_sse())
     finally:
         uv_server.should_exit = True
+        thread.join(timeout=3.0)
 
 
 def test_extract_python_ast_sections(tmp_path):
