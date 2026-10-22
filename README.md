@@ -261,6 +261,71 @@ To verify that the living documentation engine achieves its architectural promis
 
 - Run the tests with `python -m pytest`.
 
+## IDE & Agent Configuration
+
+Connect your AI coding assistants directly to the Living Docs MCP server for interactive API discovery and schema retrieval.
+
+### Cursor (`.cursor/mcp.json`)
+
+Add the following to `.cursor/mcp.json` in your workspace or global Cursor settings:
+
+```json
+{
+  "mcpServers": {
+    "living-docs": {
+      "command": "living-docs",
+      "args": [
+        "serve",
+        "--index",
+        "build/docs-index.json",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
+*For a remote SSE server running on `http://127.0.0.1:8000`:*
+
+```json
+{
+  "mcpServers": {
+    "living-docs-remote": {
+      "url": "http://127.0.0.1:8000/sse"
+    }
+  }
+}
+```
+
+### Claude Desktop (`claude_desktop_config.json`)
+
+Add the living-docs server to your Claude Desktop configuration file:
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "living-docs": {
+      "command": "living-docs",
+      "args": [
+        "serve",
+        "--index",
+        "/absolute/path/to/build/docs-index.json",
+        "--transport",
+        "stdio"
+      ]
+    }
+  }
+}
+```
+
+Once connected, your agent automatically has access to:
+- `docs://manifest` — Table of contents with section IDs, routes, and token sizes.
+- `search_docs` — Hybrid search for conceptual guides and API descriptions within token limits.
+- `get_api_spec` — Complete, deterministic parameter and response schemas for specific endpoints.
+
 Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); automated agent evaluation benchmarks are the next milestone.
 
 ## License & Contact
@@ -408,9 +473,9 @@ The following checklist tracks remaining items to polish before publishing this 
 
 ### 1. Portfolio Polish & Presentation
 - [x] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
-- [ ] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
-- [ ] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
-- [ ] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
+- [x] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
+- [x] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
+- [x] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
 
 ### 2. CI/CD & Automated Verification
 - [x] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
