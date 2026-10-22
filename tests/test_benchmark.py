@@ -45,7 +45,6 @@ def test_token_efficiency_benchmark_with_custom_files(tmp_path):
 
 def test_benchmark_handles_path_level_metadata_and_empty_spec(tmp_path):
     import pytest
-    from pathlib import Path
 
     # Spec where 'summary' and 'parameters' appear before 'get'
     spec_with_meta = tmp_path / "meta_spec.json"
