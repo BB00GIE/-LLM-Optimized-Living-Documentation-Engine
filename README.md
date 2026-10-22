@@ -31,6 +31,32 @@ This project defines a pipeline and runtime to produce documentation optimized f
 
 The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python and TypeScript. Automated agent evaluation benchmarks remain planned work.
 
+## Try It in 30 Seconds
+
+Get from zero to machine-optimized living docs in three commands:
+
+```bash
+# 1. Clone & install in editable mode with development dependencies
+git clone https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine.git
+cd -LLM-Optimized-Living-Documentation-Engine
+pip install -e ".[dev]"
+
+# 2. Build machine documentation artifacts from example sources
+living-docs build \
+  --openapi examples/openapi.yaml \
+  --markdown examples/docs \
+  --python examples/src/client.py \
+  --typescript examples/src/types.ts \
+  --output build \
+  --project-name "Example Tasks API"
+
+# 3. Verify token savings and start the MCP server
+living-docs benchmark
+living-docs serve --index build/docs-index.json --transport stdio
+```
+
+*(On Windows PowerShell, use backslashes `\` or single-line commands without bash line continuations).*
+
 ## High‑level Architecture
 
 ```mermaid
