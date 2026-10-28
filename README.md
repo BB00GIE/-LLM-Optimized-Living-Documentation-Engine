@@ -145,6 +145,7 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 
 ### Implemented
 - OpenAPI 3.x and Markdown/MDX ingestion
+- Documentation stack adapters for MkDocs, Docusaurus, and Sphinx (`--stack-root`)
 - Python AST extraction (`ast`) for classes, typed attributes, and function/method signatures
 - TypeScript AST extraction for `interface`, `type`, `enum`, `function`, and `const` arrow function declarations with JSDoc
 - Static artifacts generation (`/llms.txt`, `/llms-small.txt`, `/llms-full.txt`)
@@ -156,7 +157,7 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 - Automated MCP Protocol Conformance Test Suite (validating resources, tools, error contracts)
 
 ### Long term
-- Ecosystem: exporters (SDKs), adapters for common docs stacks (mkdocs, swagger), and production deployment patterns
+- Ecosystem: client SDK exporters (typed stubs) and advanced production deployment patterns
 
 ## Suggested Tech Stack
 
