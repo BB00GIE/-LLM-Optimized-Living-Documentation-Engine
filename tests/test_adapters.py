@@ -1,4 +1,3 @@
-from pathlib import Path
 from living_docs.adapters import detect_doc_stack, extract_stack_sections
 from living_docs.engine import build_artifacts
 
