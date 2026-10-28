@@ -6,17 +6,15 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 concurrency:
-  group: "pages"
+  group: "static-docs-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
   build-and-deploy:
-    name: Build & Deploy Static llms*.txt
+    name: Build & Store Static llms*.txt
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -52,15 +50,29 @@ jobs:
           test -f dist-docs/llms-full.txt
           test -f dist-docs/docs-index.json
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload static documentation artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: dist-docs
+          name: living-docs-static
+          path: dist-docs/
+          retention-days: 30
 
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
-
+      # Optional: GitHub Pages deployment recipe (requires repository to be public or GitHub Pro/Team/Enterprise):
+      # permissions:
+      #   contents: read
+      #   pages: write
+      #   id-token: write
+      # environment:
+      #   name: github-pages
+      #   url: ${{ steps.deployment.outputs.page_url }}
+      # - name: Upload artifact for GitHub Pages
+      #   uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: dist-docs
+      # - name: Deploy to GitHub Pages
+      #   id: deployment
+      #   uses: actions/deploy-pages@v4
+      #
       # Optional: Cloudflare Pages / AWS S3 deployment recipes:
       # - name: Deploy to Cloudflare Pages
       #   uses: cloudflare/wrangler-action@v3
