@@ -259,6 +259,12 @@ To verify that the living documentation engine achieves its architectural promis
   living-docs serve --index build\docs-index.json --transport sse --host 127.0.0.1 --port 8000
   ```
 
+- Or run with Docker / Docker Compose:
+
+  ```bash
+  docker compose up -d
+  ```
+
 - Run the tests with `python -m pytest`.
 
 ## IDE & Agent Configuration
@@ -483,6 +489,6 @@ The following checklist tracks remaining items to polish before publishing this 
 - [x] **PyPI Packaging Metadata:** Complete author name, email, repository URLs, and topic classifiers in `pyproject.toml`.
 
 ### 3. Production Deployment & Distribution
-- [ ] **Production Dockerfile:** Create a multi-stage, lightweight container image (`python:3.11-slim`) for running the living-docs MCP server over SSE (`0.0.0.0:8000`).
-- [ ] **Docker Compose Example:** Add a sample `docker-compose.yml` for running the documentation engine alongside agentic workflows.
-- [ ] **Static Edge Export Hook:** Add a deployment script/action to push `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt` directly to Cloudflare Pages, Vercel, or AWS S3.
+- [x] **Production Dockerfile:** Create a multi-stage, lightweight container image (`python:3.11-slim`) for running the living-docs MCP server over SSE (`0.0.0.0:8000`).
+- [x] **Docker Compose Example:** Add a sample `docker-compose.yml` for running the documentation engine alongside agentic workflows.
+- [x] **Static Edge Export Hook:** Add a deployment script/action to push `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt` directly to Cloudflare Pages, Vercel, or AWS S3.
