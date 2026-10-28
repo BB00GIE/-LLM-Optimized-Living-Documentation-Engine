@@ -58,6 +58,7 @@ def main() -> None:
     build.add_argument("--markdown", action="append", type=Path, default=[], help="Markdown/MDX source directory")
     build.add_argument("--python", action="append", type=Path, default=[], help="Python source file or directory")
     build.add_argument("--typescript", action="append", type=Path, default=[], help="TypeScript source file or directory")
+    build.add_argument("--stack-root", type=Path, default=None, help="Root directory of a documentation stack (MkDocs, Docusaurus, Sphinx)")
     build.add_argument("--output", type=Path, required=True, help="Output directory")
     build.add_argument("--project-name", default="Documentation")
     build.add_argument("--small-token-budget", type=int, default=4000)
@@ -97,6 +98,7 @@ def main() -> None:
             markdown_directories=args.markdown,
             python_sources=args.python,
             typescript_sources=args.typescript,
+            doc_stack_root=args.stack_root,
             project_name=args.project_name,
             small_token_budget=args.small_token_budget,
             encoding_name=args.tokenizer,

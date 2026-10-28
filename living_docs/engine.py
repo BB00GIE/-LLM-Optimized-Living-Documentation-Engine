@@ -347,12 +347,19 @@ def build_artifacts(
     markdown_directories: list[Path] | None = None,
     python_sources: list[Path] | None = None,
     typescript_sources: list[Path] | None = None,
+    doc_stack_root: Path | None = None,
     project_name: str = "Documentation",
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
     embedder: Embedder | None = None,
 ) -> dict[str, Any]:
     sections: list[Section] = []
+    if doc_stack_root:
+        from living_docs.adapters import detect_doc_stack, extract_stack_sections
+        stack_config = detect_doc_stack(doc_stack_root)
+        if project_name == "Documentation" and stack_config.project_name:
+            project_name = stack_config.project_name
+        sections.extend(extract_stack_sections(stack_config, encoding_name=encoding_name))
     for path in openapi_files or []:
         sections.extend(_openapi_sections(path, encoding_name=encoding_name))
     sections.extend(_markdown_sections(markdown_directories or [], encoding_name=encoding_name))
