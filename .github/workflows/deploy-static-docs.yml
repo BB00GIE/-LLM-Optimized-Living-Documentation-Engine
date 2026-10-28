@@ -1,0 +1,74 @@
+name: Deploy Static Documentation Artifacts
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy Static llms*.txt
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Build Living Documentation Artifacts
+        run: |
+          mkdir -p dist-docs
+          living-docs build \
+            --openapi examples/openapi.yaml \
+            --markdown examples/docs \
+            --python examples/src/client.py \
+            --typescript examples/src/types.ts \
+            --output dist-docs \
+            --project-name "Living Documentation Engine"
+
+      - name: Verify static artifacts exist
+        run: |
+          ls -la dist-docs
+          test -f dist-docs/llms.txt
+          test -f dist-docs/llms-small.txt
+          test -f dist-docs/llms-full.txt
+          test -f dist-docs/docs-index.json
+
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      # Optional: Cloudflare Pages / AWS S3 deployment recipes:
+      # - name: Deploy to Cloudflare Pages
+      #   uses: cloudflare/wrangler-action@v3
+      #   with:
+      #     apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      #     command: pages deploy dist-docs --project-name=living-docs
+      #
+      # - name: Deploy to AWS S3
+      #   run: |
+      #     aws s3 sync dist-docs s3://${{ secrets.AWS_S3_BUCKET }} --delete
