@@ -66,41 +66,119 @@ def _read_openapi(path: Path) -> dict[str, Any]:
     return document
 
 
+def _load_yaml_or_json(path: Path) -> Any:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        return json.loads(text)
+    return yaml.safe_load(text)
+
+
+def _resolve_refs(
+    value: Any,
+    document: dict[str, Any],
+    base_file_path: Path | None = None,
+    document_cache: dict[Path, Any] | None = None,
+    seen: frozenset[str] = frozenset(),
+    depth: int = 0,
+) -> Any:
+    """Resolve both local and relative external OpenAPI references with cycle detection and path-traversal safeguards."""
+    if depth > 64:
+        raise ValueError("Exceeded maximum OpenAPI reference recursion depth (64)")
+    if isinstance(value, list):
+        return [
+            _resolve_refs(
+                item,
+                document,
+                base_file_path=base_file_path,
+                document_cache=document_cache,
+                seen=seen,
+                depth=depth + 1,
+            )
+            for item in value
+        ]
+    if not isinstance(value, dict):
+        return value
+
+    if document_cache is None:
+        document_cache = {}
+
+    reference = value.get("$ref")
+    result: dict[str, Any] = {}
+    if reference is not None:
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError(f"Invalid OpenAPI reference: {reference!r}")
+
+        ref_str = reference.strip()
+        if "#" in ref_str:
+            file_part, fragment = ref_str.split("#", 1)
+        else:
+            file_part, fragment = ref_str, ""
+
+        current_base = base_file_path.resolve() if base_file_path else None
+        target_doc = document
+        target_file_path = current_base
+
+        if file_part:
+            if not current_base:
+                raise ValueError(f"Cannot resolve relative external reference without a base file path: {ref_str}")
+            resolved_file = (current_base.parent / file_part).resolve()
+            if not resolved_file.is_file():
+                raise FileNotFoundError(f"Referenced OpenAPI file does not exist: {resolved_file} (from {ref_str})")
+            if resolved_file not in document_cache:
+                document_cache[resolved_file] = _load_yaml_or_json(resolved_file)
+            target_doc = document_cache[resolved_file]
+            target_file_path = resolved_file
+
+        canonical_key = f"{target_file_path.as_posix() if target_file_path else ''}#{fragment}"
+        if canonical_key in seen:
+            result["$ref"] = ref_str
+        else:
+            target: Any = target_doc
+            if fragment:
+                if not fragment.startswith("/"):
+                    raise ValueError(f"Invalid reference fragment format: {fragment!r} (expected '/...')")
+                for part in fragment[1:].split("/"):
+                    part = part.replace("~1", "/").replace("~0", "~")
+                    if not isinstance(target, dict) or part not in target:
+                        raise ValueError(f"OpenAPI reference does not exist: {ref_str}")
+                    target = target[part]
+
+            resolved_target = _resolve_refs(
+                target,
+                document=target_doc,
+                base_file_path=target_file_path,
+                document_cache=document_cache,
+                seen=seen | {canonical_key},
+                depth=depth + 1,
+            )
+            if isinstance(resolved_target, dict):
+                result.update(resolved_target)
+            else:
+                return resolved_target
+
+    result.update({
+        key: _resolve_refs(
+            item,
+            document,
+            base_file_path=base_file_path,
+            document_cache=document_cache,
+            seen=seen,
+            depth=depth + 1,
+        )
+        for key, item in value.items()
+        if key != "$ref"
+    })
+    return result
+
+
 def _resolve_local_refs(
     value: Any,
     document: dict[str, Any],
     seen: frozenset[str] = frozenset(),
     depth: int = 0,
 ) -> Any:
-    if depth > 64:
-        raise ValueError("Exceeded maximum OpenAPI reference recursion depth (64)")
-    if isinstance(value, list):
-        return [_resolve_local_refs(item, document, seen, depth + 1) for item in value]
-    if not isinstance(value, dict):
-        return value
-
-    reference = value.get("$ref")
-    result: dict[str, Any] = {}
-    if reference is not None:
-        if not isinstance(reference, str) or not reference.startswith("#/"):
-            raise ValueError(f"Only local OpenAPI references are supported: {reference!r}")
-        if reference in seen:
-            result["$ref"] = reference
-        else:
-            target: Any = document
-            for part in reference[2:].split("/"):
-                part = part.replace("~1", "/").replace("~0", "~")
-                if not isinstance(target, dict) or part not in target:
-                    raise ValueError(f"OpenAPI reference does not exist: {reference}")
-                target = target[part]
-            result.update(_resolve_local_refs(target, document, seen | {reference}, depth + 1))
-
-    result.update({
-        key: _resolve_local_refs(item, document, seen, depth + 1)
-        for key, item in value.items()
-        if key != "$ref"
-    })
-    return result
+    """Backward-compatible wrapper for resolving local references."""
+    return _resolve_refs(value, document, base_file_path=None, document_cache=None, seen=seen, depth=depth)
 
 
 def _compact_json(value: Any) -> str:
@@ -113,8 +191,20 @@ def _schema_block(schema: Any) -> str:
     return _compact_json(schema)
 
 
-def _render_operation(path: str, method: str, operation: dict[str, Any], document: dict[str, Any]) -> tuple[str, str]:
-    resolved = _resolve_local_refs(operation, document)
+def _render_operation(
+    path: str,
+    method: str,
+    operation: dict[str, Any],
+    document: dict[str, Any],
+    base_file_path: Path | None = None,
+    document_cache: dict[Path, Any] | None = None,
+) -> tuple[str, str]:
+    resolved = _resolve_refs(
+        operation,
+        document,
+        base_file_path=base_file_path,
+        document_cache=document_cache,
+    )
     summary = str(resolved.get("summary") or resolved.get("operationId") or f"{method.upper()} {path}")
     description = str(resolved.get("description") or "")
     lines = [f"# `{method.upper()} {path}` — {summary}", ""]
@@ -172,9 +262,15 @@ def _render_operation(path: str, method: str, operation: dict[str, Any], documen
 
 def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Section]:
     document = _read_openapi(path)
+    document_cache: dict[Path, Any] = {path.resolve(): document}
     sections: list[Section] = []
     for route, raw_path_item in sorted(document.get("paths", {}).items()):
-        path_item = _resolve_local_refs(raw_path_item, document)
+        path_item = _resolve_refs(
+            raw_path_item,
+            document,
+            base_file_path=path,
+            document_cache=document_cache,
+        )
         if not isinstance(path_item, dict):
             continue
         for method in _METHODS:
@@ -194,7 +290,14 @@ def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Se
                     for parameter in operation_parameters
                 })
                 operation["parameters"] = list(combined.values())
-            content, summary = _render_operation(route, method, operation, document)
+            content, summary = _render_operation(
+                route,
+                method,
+                operation,
+                document,
+                base_file_path=path,
+                document_cache=document_cache,
+            )
             section_id = f"api-{method}-{quote(route, safe='')}"
             sections.append(Section(
                 id=section_id,

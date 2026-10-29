@@ -467,3 +467,56 @@ def test_directory_scan_ignores_vendor_and_hidden_dirs(tmp_path):
     assert "def venv_func" not in titles
     assert "function vendorTs" not in titles
     assert "Hidden" not in titles
+
+
+def test_external_relative_openapi_refs(tmp_path):
+    schemas_dir = tmp_path / "schemas"
+    schemas_dir.mkdir()
+    (schemas_dir / "user.yaml").write_text(
+        """
+User:
+  type: object
+  required:
+    - id
+    - email
+  properties:
+    id:
+      type: string
+    email:
+      type: string
+""",
+        encoding="utf-8",
+    )
+
+    main_spec = tmp_path / "main.yaml"
+    main_spec.write_text(
+        """
+openapi: "3.0.3"
+info:
+  title: Multi-File API
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "./schemas/user.yaml#/User"
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_external_refs"
+    manifest = build_artifacts(output_directory=out, openapi_files=[main_spec])
+    assert len(manifest["sections"]) == 1
+    full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    assert '"email"' in full
+    assert '"id"' in full
+    assert '"required"' in full
+
