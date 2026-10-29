@@ -63,6 +63,7 @@ def main() -> None:
     build.add_argument("--project-name", default="Documentation")
     build.add_argument("--small-token-budget", type=int, default=4000)
     build.add_argument("--tokenizer", default="cl100k_base", choices=["cl100k_base", "o200k_base"], help="Tokenizer encoding")
+    build.add_argument("--incremental", action="store_true", help="Enable incremental caching to avoid rebuilding unchanged artifacts")
 
     serve = commands.add_parser("serve", help="Run the MCP server over stdio or SSE")
     serve.add_argument("--index", type=Path, required=True, help="Path to docs-index.json")
@@ -108,6 +109,7 @@ def main() -> None:
             project_name=args.project_name,
             small_token_budget=args.small_token_budget,
             encoding_name=args.tokenizer,
+            incremental=args.incremental,
         )
         print(f"Built {len(manifest['sections'])} sections ({manifest['total_tokens']} tokens) in {args.output}")
     elif args.command == "serve":
