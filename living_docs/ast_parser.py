@@ -168,6 +168,26 @@ def _resolve_clean_relative_path(file_path: Path, root: Path | None = None) -> s
         return file_path.name
 
 
+def _render_py_variable(node: ast.AnnAssign, rel_path: str, encoding_name: str) -> Section | None:
+    if not isinstance(node.target, ast.Name) or node.target.id.startswith("_"):
+        return None
+    var_name = node.target.id
+    type_str = ast.unparse(node.annotation) if node.annotation else "Any"
+    val_str = f" = {ast.unparse(node.value)}" if node.value else ""
+    full_decl = f"{var_name}: {type_str}{val_str}"
+    lines = [f"# `{full_decl}`", ""]
+    content = "\n".join(lines).rstrip() + "\n"
+    return Section(
+        id=f"py-{quote(rel_path, safe='')}-{var_name}",
+        title=f"constant {var_name}",
+        path=f"{rel_path}:{var_name}",
+        content=content,
+        tokens=count_tokens(content, encoding_name=encoding_name),
+        description=f"Constant {var_name}: {type_str}",
+        kind="code",
+    )
+
+
 def extract_python_sections(paths: list[Path], encoding_name: str = "cl100k_base") -> list[Section]:
     sections: list[Section] = []
     files: list[tuple[Path, Path | None]] = []
@@ -198,6 +218,10 @@ def extract_python_sections(paths: list[Path], encoding_name: str = "cl100k_base
             elif isinstance(node, ast.ClassDef):
                 if not node.name.startswith("_"):
                     sections.append(_render_py_class(node, rel, encoding_name))
+            elif isinstance(node, ast.AnnAssign):
+                var_sec = _render_py_variable(node, rel, encoding_name)
+                if var_sec:
+                    sections.append(var_sec)
     return sections
 
 

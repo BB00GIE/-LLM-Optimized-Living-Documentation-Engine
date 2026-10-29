@@ -144,9 +144,11 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 ## Roadmap & Milestones
 
 ### Implemented
-- OpenAPI 3.x and Markdown/MDX ingestion
+- OpenAPI 3.x and Markdown/MDX ingestion with multi-file relative external `$ref` resolution
+- OpenAPI 3.0 / 3.1 schema normalization (including `allOf` property composition and sorted constraints)
+- Incremental build caching (`--incremental`) via multi-source content hashing
 - Documentation stack adapters for MkDocs, Docusaurus, and Sphinx (`--stack-root`)
-- Python AST extraction (`ast`) for classes, typed attributes, and function/method signatures
+- Python AST extraction (`ast`) for classes, typed attributes, module constants, and function/method signatures
 - TypeScript AST extraction for `interface`, `type`, `enum`, `function`, and `const` arrow function declarations with JSDoc
 - Static artifacts generation (`/llms.txt`, `/llms-small.txt`, `/llms-full.txt`)
 - Hybrid search (BM25 + Dense Vectors) with Reciprocal Rank Fusion

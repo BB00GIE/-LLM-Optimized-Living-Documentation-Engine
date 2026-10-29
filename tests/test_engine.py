@@ -367,6 +367,17 @@ def test_extract_python_ast_sections(tmp_path):
     assert "public_api" in priv_sec[0].content
     assert "_private_worker" not in priv_sec[0].content
 
+    # Top-level typed module constants should be extracted
+    const_file = tmp_path / "consts.py"
+    const_file.write_text(
+        "DEFAULT_TIMEOUT: float = 30.0\n_INTERNAL_FLAG: bool = True\n",
+        encoding="utf-8",
+    )
+    const_secs = extract_python_sections([const_file])
+    assert len(const_secs) == 1
+    assert const_secs[0].title == "constant DEFAULT_TIMEOUT"
+    assert "DEFAULT_TIMEOUT: float = 30.0" in const_secs[0].content
+
 
 def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
@@ -467,3 +478,159 @@ def test_directory_scan_ignores_vendor_and_hidden_dirs(tmp_path):
     assert "def venv_func" not in titles
     assert "function vendorTs" not in titles
     assert "Hidden" not in titles
+
+
+def test_external_relative_openapi_refs(tmp_path):
+    schemas_dir = tmp_path / "schemas"
+    schemas_dir.mkdir()
+    (schemas_dir / "user.yaml").write_text(
+        """
+User:
+  type: object
+  required:
+    - id
+    - email
+  properties:
+    id:
+      type: string
+    email:
+      type: string
+""",
+        encoding="utf-8",
+    )
+
+    main_spec = tmp_path / "main.yaml"
+    main_spec.write_text(
+        """
+openapi: "3.0.3"
+info:
+  title: Multi-File API
+  version: "1.0.0"
+paths:
+  /users:
+    get:
+      summary: List users
+      responses:
+        '200':
+          description: A list of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "./schemas/user.yaml#/User"
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_external_refs"
+    manifest = build_artifacts(output_directory=out, openapi_files=[main_spec])
+    assert len(manifest["sections"]) == 1
+    full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    assert '"email"' in full
+    assert '"id"' in full
+    assert '"required"' in full
+
+
+def test_openapi_schema_composition_allof(tmp_path):
+    spec_file = tmp_path / "composed.yaml"
+    spec_file.write_text(
+        """
+openapi: "3.1.0"
+info:
+  title: Composed API
+  version: "1.0.0"
+paths:
+  /items:
+    post:
+      summary: Create composed item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required:
+                    - id
+                  properties:
+                    id:
+                      type: string
+                - type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+      responses:
+        '200':
+          description: OK
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_composed"
+    manifest = build_artifacts(output_directory=out, openapi_files=[spec_file])
+    assert len(manifest["sections"]) == 1
+    full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    assert '"required":["id","name"]' in full
+    assert '"description"' in full
+
+
+def test_incremental_build_caching(tmp_path):
+    spec_file = tmp_path / "spec.yaml"
+    spec_file.write_text(
+        """
+openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0.0"
+paths:
+  /ping:
+    get:
+      summary: Ping endpoint
+      responses:
+        '200':
+          description: Pong
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_incremental"
+    m1 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert len(m1["sections"]) == 1
+    cache_file = out / ".build-cache.json"
+    assert cache_file.exists()
+
+    m2 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert m2["total_tokens"] == m1["total_tokens"]
+
+    spec_file.write_text(
+        """
+openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0.0"
+paths:
+  /ping:
+    get:
+      summary: Ping endpoint
+      responses:
+        '200':
+          description: Pong
+  /pong:
+    get:
+      summary: Pong endpoint
+      responses:
+        '200':
+          description: Ping
+""",
+        encoding="utf-8",
+    )
+
+    m3 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert len(m3["sections"]) == 2
+
+
+

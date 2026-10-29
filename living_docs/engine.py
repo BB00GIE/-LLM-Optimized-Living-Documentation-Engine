@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
 import sqlite3
@@ -66,55 +67,194 @@ def _read_openapi(path: Path) -> dict[str, Any]:
     return document
 
 
-def _resolve_local_refs(
+def _load_yaml_or_json(path: Path) -> Any:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() == ".json":
+        return json.loads(text)
+    return yaml.safe_load(text)
+
+
+def _resolve_refs(
     value: Any,
     document: dict[str, Any],
+    base_file_path: Path | None = None,
+    document_cache: dict[Path, Any] | None = None,
     seen: frozenset[str] = frozenset(),
     depth: int = 0,
 ) -> Any:
+    """Resolve both local and relative external OpenAPI references with cycle detection and path-traversal safeguards."""
     if depth > 64:
         raise ValueError("Exceeded maximum OpenAPI reference recursion depth (64)")
     if isinstance(value, list):
-        return [_resolve_local_refs(item, document, seen, depth + 1) for item in value]
+        return [
+            _resolve_refs(
+                item,
+                document,
+                base_file_path=base_file_path,
+                document_cache=document_cache,
+                seen=seen,
+                depth=depth + 1,
+            )
+            for item in value
+        ]
     if not isinstance(value, dict):
         return value
+
+    if document_cache is None:
+        document_cache = {}
 
     reference = value.get("$ref")
     result: dict[str, Any] = {}
     if reference is not None:
-        if not isinstance(reference, str) or not reference.startswith("#/"):
-            raise ValueError(f"Only local OpenAPI references are supported: {reference!r}")
-        if reference in seen:
-            result["$ref"] = reference
+        if not isinstance(reference, str) or not reference.strip():
+            raise ValueError(f"Invalid OpenAPI reference: {reference!r}")
+
+        ref_str = reference.strip()
+        if "#" in ref_str:
+            file_part, fragment = ref_str.split("#", 1)
         else:
-            target: Any = document
-            for part in reference[2:].split("/"):
-                part = part.replace("~1", "/").replace("~0", "~")
-                if not isinstance(target, dict) or part not in target:
-                    raise ValueError(f"OpenAPI reference does not exist: {reference}")
-                target = target[part]
-            result.update(_resolve_local_refs(target, document, seen | {reference}, depth + 1))
+            file_part, fragment = ref_str, ""
+
+        current_base = base_file_path.resolve() if base_file_path else None
+        target_doc = document
+        target_file_path = current_base
+
+        if file_part:
+            if not current_base:
+                raise ValueError(f"Cannot resolve relative external reference without a base file path: {ref_str}")
+            resolved_file = (current_base.parent / file_part).resolve()
+            if not resolved_file.is_file():
+                raise FileNotFoundError(f"Referenced OpenAPI file does not exist: {resolved_file} (from {ref_str})")
+            if resolved_file not in document_cache:
+                document_cache[resolved_file] = _load_yaml_or_json(resolved_file)
+            target_doc = document_cache[resolved_file]
+            target_file_path = resolved_file
+
+        canonical_key = f"{target_file_path.as_posix() if target_file_path else ''}#{fragment}"
+        if canonical_key in seen:
+            result["$ref"] = ref_str
+        else:
+            target: Any = target_doc
+            if fragment:
+                if not fragment.startswith("/"):
+                    raise ValueError(f"Invalid reference fragment format: {fragment!r} (expected '/...')")
+                for part in fragment[1:].split("/"):
+                    part = part.replace("~1", "/").replace("~0", "~")
+                    if not isinstance(target, dict) or part not in target:
+                        raise ValueError(f"OpenAPI reference does not exist: {ref_str}")
+                    target = target[part]
+
+            resolved_target = _resolve_refs(
+                target,
+                document=target_doc,
+                base_file_path=target_file_path,
+                document_cache=document_cache,
+                seen=seen | {canonical_key},
+                depth=depth + 1,
+            )
+            if isinstance(resolved_target, dict):
+                result.update(resolved_target)
+            else:
+                return resolved_target
 
     result.update({
-        key: _resolve_local_refs(item, document, seen, depth + 1)
+        key: _resolve_refs(
+            item,
+            document,
+            base_file_path=base_file_path,
+            document_cache=document_cache,
+            seen=seen,
+            depth=depth + 1,
+        )
         for key, item in value.items()
         if key != "$ref"
     })
     return result
 
 
+def _resolve_local_refs(
+    value: Any,
+    document: dict[str, Any],
+    seen: frozenset[str] = frozenset(),
+    depth: int = 0,
+) -> Any:
+    """Backward-compatible wrapper for resolving local references."""
+    return _resolve_refs(value, document, base_file_path=None, document_cache=None, seen=seen, depth=depth)
+
+
 def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+
+
+def _normalize_schema(schema: Any) -> Any:
+    """Normalize OpenAPI 3.0 / 3.1 schema constructs including allOf composition, anyOf, oneOf, prefixItems."""
+    if not isinstance(schema, dict):
+        return schema
+
+    norm: dict[str, Any] = {k: _normalize_schema(v) for k, v in schema.items()}
+
+    if "required" in norm and isinstance(norm["required"], list):
+        norm["required"] = sorted(set(norm["required"]))
+
+    all_of = norm.get("allOf")
+    if isinstance(all_of, list):
+        merged_props: dict[str, Any] = {}
+        merged_required: list[str] = []
+        base_props = norm.get("properties")
+        if isinstance(base_props, dict):
+            merged_props.update(base_props)
+        if isinstance(norm.get("required"), list):
+            merged_required.extend(norm["required"])
+
+        other_all_of: list[Any] = []
+        for sub in all_of:
+            if isinstance(sub, dict):
+                sub_props = sub.get("properties")
+                if isinstance(sub_props, dict):
+                    merged_props.update(sub_props)
+                if isinstance(sub.get("required"), list):
+                    for req in sub["required"]:
+                        if req not in merged_required:
+                            merged_required.append(req)
+                clean_sub = {k: v for k, v in sub.items() if k not in ("properties", "required")}
+                if clean_sub:
+                    other_all_of.append(clean_sub)
+            else:
+                other_all_of.append(sub)
+
+        if merged_props:
+            norm["type"] = norm.get("type", "object")
+            norm["properties"] = merged_props
+            if merged_required:
+                norm["required"] = sorted(set(merged_required))
+            if not other_all_of:
+                norm.pop("allOf", None)
+            else:
+                norm["allOf"] = other_all_of
+
+    return norm
 
 
 def _schema_block(schema: Any) -> str:
     if not isinstance(schema, dict):
         return _compact_json(schema)
-    return _compact_json(schema)
+    return _compact_json(_normalize_schema(schema))
 
 
-def _render_operation(path: str, method: str, operation: dict[str, Any], document: dict[str, Any]) -> tuple[str, str]:
-    resolved = _resolve_local_refs(operation, document)
+def _render_operation(
+    path: str,
+    method: str,
+    operation: dict[str, Any],
+    document: dict[str, Any],
+    base_file_path: Path | None = None,
+    document_cache: dict[Path, Any] | None = None,
+) -> tuple[str, str]:
+    resolved = _resolve_refs(
+        operation,
+        document,
+        base_file_path=base_file_path,
+        document_cache=document_cache,
+    )
     summary = str(resolved.get("summary") or resolved.get("operationId") or f"{method.upper()} {path}")
     description = str(resolved.get("description") or "")
     lines = [f"# `{method.upper()} {path}` — {summary}", ""]
@@ -172,9 +312,15 @@ def _render_operation(path: str, method: str, operation: dict[str, Any], documen
 
 def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Section]:
     document = _read_openapi(path)
+    document_cache: dict[Path, Any] = {path.resolve(): document}
     sections: list[Section] = []
     for route, raw_path_item in sorted(document.get("paths", {}).items()):
-        path_item = _resolve_local_refs(raw_path_item, document)
+        path_item = _resolve_refs(
+            raw_path_item,
+            document,
+            base_file_path=path,
+            document_cache=document_cache,
+        )
         if not isinstance(path_item, dict):
             continue
         for method in _METHODS:
@@ -194,7 +340,14 @@ def _openapi_sections(path: Path, encoding_name: str = "cl100k_base") -> list[Se
                     for parameter in operation_parameters
                 })
                 operation["parameters"] = list(combined.values())
-            content, summary = _render_operation(route, method, operation, document)
+            content, summary = _render_operation(
+                route,
+                method,
+                operation,
+                document,
+                base_file_path=path,
+                document_cache=document_cache,
+            )
             section_id = f"api-{method}-{quote(route, safe='')}"
             sections.append(Section(
                 id=section_id,
@@ -341,6 +494,77 @@ def _manifest(sections: list[Section], project_name: str) -> dict[str, Any]:
     }
 
 
+def _compute_sources_fingerprint(
+    openapi_files: list[Path] | None,
+    markdown_directories: list[Path] | None,
+    python_sources: list[Path] | None,
+    typescript_sources: list[Path] | None,
+    doc_stack_root: Path | None,
+    project_name: str,
+    small_token_budget: int,
+    encoding_name: str,
+) -> dict[str, Any]:
+    """Compute an SHA-256 fingerprint of all source files, parameters, and paths."""
+    file_hashes: dict[str, str] = {}
+    candidate_paths: list[Path] = []
+
+    if openapi_files:
+        candidate_paths.extend(openapi_files)
+    if markdown_directories:
+        for md_dir in markdown_directories:
+            if md_dir.is_dir():
+                candidate_paths.extend(
+                    p for p in (*md_dir.rglob("*.md"), *md_dir.rglob("*.mdx"))
+                    if not _is_ignored_path(p)
+                )
+    if python_sources:
+        for py_src in python_sources:
+            if py_src.is_file():
+                candidate_paths.append(py_src)
+            elif py_src.is_dir():
+                candidate_paths.extend(
+                    p for p in py_src.rglob("*.py") if not _is_ignored_path(p)
+                )
+    if typescript_sources:
+        for ts_src in typescript_sources:
+            if ts_src.is_file():
+                candidate_paths.append(ts_src)
+            elif ts_src.is_dir():
+                candidate_paths.extend(
+                    p for p in (*ts_src.rglob("*.ts"), *ts_src.rglob("*.tsx"), *ts_src.rglob("*.d.ts"))
+                    if not _is_ignored_path(p)
+                )
+    if doc_stack_root and doc_stack_root.is_dir():
+        candidate_paths.extend(
+            p for p in doc_stack_root.rglob("*")
+            if p.is_file() and not _is_ignored_path(p) and p.suffix.lower() in (".md", ".mdx", ".yml", ".yaml", ".json")
+        )
+
+    for path in sorted(set(candidate_paths)):
+        try:
+            if path.is_file():
+                content = path.read_bytes()
+                file_hashes[str(path.resolve())] = hashlib.sha256(content).hexdigest()
+        except OSError:
+            pass
+
+    overall_hasher = hashlib.sha256()
+    overall_hasher.update(project_name.encode("utf-8"))
+    overall_hasher.update(str(small_token_budget).encode("utf-8"))
+    overall_hasher.update(encoding_name.encode("utf-8"))
+    for file_key in sorted(file_hashes.keys()):
+        overall_hasher.update(file_key.encode("utf-8"))
+        overall_hasher.update(file_hashes[file_key].encode("utf-8"))
+
+    return {
+        "overall_hash": overall_hasher.hexdigest(),
+        "files": file_hashes,
+        "project_name": project_name,
+        "small_token_budget": small_token_budget,
+        "encoding_name": encoding_name,
+    }
+
+
 def build_artifacts(
     output_directory: Path,
     openapi_files: list[Path] | None = None,
@@ -352,7 +576,33 @@ def build_artifacts(
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
     embedder: Embedder | None = None,
+    incremental: bool = False,
 ) -> dict[str, Any]:
+    cache_path = output_directory / ".build-cache.json"
+    index_path = output_directory / "docs-index.json"
+
+    fingerprint = _compute_sources_fingerprint(
+        openapi_files=openapi_files,
+        markdown_directories=markdown_directories,
+        python_sources=python_sources,
+        typescript_sources=typescript_sources,
+        doc_stack_root=doc_stack_root,
+        project_name=project_name,
+        small_token_budget=small_token_budget,
+        encoding_name=encoding_name,
+    )
+
+    if incremental and cache_path.is_file() and index_path.is_file():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached_data.get("overall_hash") == fingerprint["overall_hash"]:
+                existing_index = json.loads(index_path.read_text(encoding="utf-8"))
+                manifest = existing_index.get("manifest")
+                if manifest and "sections" in manifest:
+                    return manifest
+        except (json.JSONDecodeError, OSError):
+            pass
+
     sections: list[Section] = []
     if doc_stack_root:
         from living_docs.adapters import detect_doc_stack, extract_stack_sections
@@ -440,6 +690,11 @@ def build_artifacts(
         + "\n",
         encoding="utf-8",
     )
+    if incremental:
+        cache_path.write_text(
+            json.dumps(fingerprint, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     return manifest
 
 
