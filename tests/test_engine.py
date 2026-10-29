@@ -367,6 +367,17 @@ def test_extract_python_ast_sections(tmp_path):
     assert "public_api" in priv_sec[0].content
     assert "_private_worker" not in priv_sec[0].content
 
+    # Top-level typed module constants should be extracted
+    const_file = tmp_path / "consts.py"
+    const_file.write_text(
+        "DEFAULT_TIMEOUT: float = 30.0\n_INTERNAL_FLAG: bool = True\n",
+        encoding="utf-8",
+    )
+    const_secs = extract_python_sections([const_file])
+    assert len(const_secs) == 1
+    assert const_secs[0].title == "constant DEFAULT_TIMEOUT"
+    assert "DEFAULT_TIMEOUT: float = 30.0" in const_secs[0].content
+
 
 def test_extract_typescript_ast_sections(tmp_path):
     sections = extract_typescript_sections([Path("examples/src/types.ts")])
