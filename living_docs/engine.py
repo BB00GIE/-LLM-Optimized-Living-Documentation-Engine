@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
 import sqlite3
@@ -493,6 +494,77 @@ def _manifest(sections: list[Section], project_name: str) -> dict[str, Any]:
     }
 
 
+def _compute_sources_fingerprint(
+    openapi_files: list[Path] | None,
+    markdown_directories: list[Path] | None,
+    python_sources: list[Path] | None,
+    typescript_sources: list[Path] | None,
+    doc_stack_root: Path | None,
+    project_name: str,
+    small_token_budget: int,
+    encoding_name: str,
+) -> dict[str, Any]:
+    """Compute an SHA-256 fingerprint of all source files, parameters, and paths."""
+    file_hashes: dict[str, str] = {}
+    candidate_paths: list[Path] = []
+
+    if openapi_files:
+        candidate_paths.extend(openapi_files)
+    if markdown_directories:
+        for md_dir in markdown_directories:
+            if md_dir.is_dir():
+                candidate_paths.extend(
+                    p for p in (*md_dir.rglob("*.md"), *md_dir.rglob("*.mdx"))
+                    if not _is_ignored_path(p)
+                )
+    if python_sources:
+        for py_src in python_sources:
+            if py_src.is_file():
+                candidate_paths.append(py_src)
+            elif py_src.is_dir():
+                candidate_paths.extend(
+                    p for p in py_src.rglob("*.py") if not _is_ignored_path(p)
+                )
+    if typescript_sources:
+        for ts_src in typescript_sources:
+            if ts_src.is_file():
+                candidate_paths.append(ts_src)
+            elif ts_src.is_dir():
+                candidate_paths.extend(
+                    p for p in (*ts_src.rglob("*.ts"), *ts_src.rglob("*.tsx"), *ts_src.rglob("*.d.ts"))
+                    if not _is_ignored_path(p)
+                )
+    if doc_stack_root and doc_stack_root.is_dir():
+        candidate_paths.extend(
+            p for p in doc_stack_root.rglob("*")
+            if p.is_file() and not _is_ignored_path(p) and p.suffix.lower() in (".md", ".mdx", ".yml", ".yaml", ".json")
+        )
+
+    for path in sorted(set(candidate_paths)):
+        try:
+            if path.is_file():
+                content = path.read_bytes()
+                file_hashes[str(path.resolve())] = hashlib.sha256(content).hexdigest()
+        except OSError:
+            pass
+
+    overall_hasher = hashlib.sha256()
+    overall_hasher.update(project_name.encode("utf-8"))
+    overall_hasher.update(str(small_token_budget).encode("utf-8"))
+    overall_hasher.update(encoding_name.encode("utf-8"))
+    for file_key in sorted(file_hashes.keys()):
+        overall_hasher.update(file_key.encode("utf-8"))
+        overall_hasher.update(file_hashes[file_key].encode("utf-8"))
+
+    return {
+        "overall_hash": overall_hasher.hexdigest(),
+        "files": file_hashes,
+        "project_name": project_name,
+        "small_token_budget": small_token_budget,
+        "encoding_name": encoding_name,
+    }
+
+
 def build_artifacts(
     output_directory: Path,
     openapi_files: list[Path] | None = None,
@@ -504,7 +576,33 @@ def build_artifacts(
     small_token_budget: int = 4000,
     encoding_name: str = "cl100k_base",
     embedder: Embedder | None = None,
+    incremental: bool = False,
 ) -> dict[str, Any]:
+    cache_path = output_directory / ".build-cache.json"
+    index_path = output_directory / "docs-index.json"
+
+    fingerprint = _compute_sources_fingerprint(
+        openapi_files=openapi_files,
+        markdown_directories=markdown_directories,
+        python_sources=python_sources,
+        typescript_sources=typescript_sources,
+        doc_stack_root=doc_stack_root,
+        project_name=project_name,
+        small_token_budget=small_token_budget,
+        encoding_name=encoding_name,
+    )
+
+    if incremental and cache_path.is_file() and index_path.is_file():
+        try:
+            cached_data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if cached_data.get("overall_hash") == fingerprint["overall_hash"]:
+                existing_index = json.loads(index_path.read_text(encoding="utf-8"))
+                manifest = existing_index.get("manifest")
+                if manifest and "sections" in manifest:
+                    return manifest
+        except (json.JSONDecodeError, OSError):
+            pass
+
     sections: list[Section] = []
     if doc_stack_root:
         from living_docs.adapters import detect_doc_stack, extract_stack_sections
@@ -592,6 +690,11 @@ def build_artifacts(
         + "\n",
         encoding="utf-8",
     )
+    if incremental:
+        cache_path.write_text(
+            json.dumps(fingerprint, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     return manifest
 
 

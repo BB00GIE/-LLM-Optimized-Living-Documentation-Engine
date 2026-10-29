@@ -567,3 +567,59 @@ paths:
     assert '"description"' in full
 
 
+def test_incremental_build_caching(tmp_path):
+    spec_file = tmp_path / "spec.yaml"
+    spec_file.write_text(
+        """
+openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0.0"
+paths:
+  /ping:
+    get:
+      summary: Ping endpoint
+      responses:
+        '200':
+          description: Pong
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_incremental"
+    m1 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert len(m1["sections"]) == 1
+    cache_file = out / ".build-cache.json"
+    assert cache_file.exists()
+
+    m2 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert m2["total_tokens"] == m1["total_tokens"]
+
+    spec_file.write_text(
+        """
+openapi: "3.0.0"
+info:
+  title: Test API
+  version: "1.0.0"
+paths:
+  /ping:
+    get:
+      summary: Ping endpoint
+      responses:
+        '200':
+          description: Pong
+  /pong:
+    get:
+      summary: Pong endpoint
+      responses:
+        '200':
+          description: Ping
+""",
+        encoding="utf-8",
+    )
+
+    m3 = build_artifacts(output_directory=out, openapi_files=[spec_file], incremental=True)
+    assert len(m3["sections"]) == 2
+
+
+
