@@ -29,7 +29,7 @@ This project defines a pipeline and runtime to produce documentation optimized f
 - AST-aware source code extraction for Python (`ast`) and TypeScript (`interface`, `type`, `function`, `class` signatures with JSDoc).
 - Hybrid search (BM25 + Dense Vectors via Reciprocal Rank Fusion) and whole-section preservation with strict token budgeting.
 
-The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python and TypeScript. Automated agent evaluation benchmarks remain planned work.
+The engine ingests OpenAPI 3.x, Markdown/MDX, and raw source code across Python and TypeScript with automated evaluation benchmarks and protocol conformance testing.
 
 ## Try It in 30 Seconds
 
@@ -160,7 +160,7 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 - Automated MCP Protocol Conformance Test Suite (validating resources, tools, error contracts)
 
 ### Long term
-- Ecosystem: advanced production deployment patterns, multi-tenant caching, and streaming MCP responses
+- Ecosystem extensions: multi-tenant caching, streaming MCP responses, and automated live docs synchronization via webhooks.
 
 ## Suggested Tech Stack
 
@@ -366,16 +366,9 @@ Once connected, your agent automatically has access to:
 - `search_docs` — Hybrid search for conceptual guides and API descriptions within token limits.
 - `get_api_spec` — Complete, deterministic parameter and response schemas for specific endpoints.
 
-Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut); automated agent evaluation benchmarks are the next milestone.
+Current boundaries: external OpenAPI references are rejected; cyclic local references are retained as `$ref`s at the recursion boundary; semantic units are kept whole (oversized search results are omitted rather than cut).
 
-## License & Contact
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-- Author: Brandon Elmore
-- Repository: [BB00GIE/-LLM-Optimized-Living-Documentation-Engine](https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine)
-
-## My Testing
+## Empirical Verification & Benchmark Methodology
 
 ### How This Data Was Founded & Measured
 
@@ -507,22 +500,9 @@ py -3.10 -c "import sqlite3; conn = sqlite3.connect('verification_results/verifi
 
 ---
 
-## Production Readiness & Portfolio TODO List
+## License & Contact
 
-The following checklist tracks remaining items to polish before publishing this repository to a public portfolio:
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### 1. Portfolio Polish & Presentation
-- [x] **Add Open-Source License:** Add an official `LICENSE` file (e.g. MIT or Apache-2.0) to make the repository open-source compliant.
-- [x] **Visual Mermaid Architecture Diagram:** Add a visual flowchart in `README.md` illustrating the 3-tier pipeline (*Source Ingestion -> AST Compaction -> Static `/llms.txt` + MCP stdio/SSE Server*).
-- [x] **"Try It in 30 Seconds" Quickstart:** Add an immediate copy-paste demo block in the README showing one-command installation, build, and benchmark execution.
-- [x] **IDE Configuration Snippets:** Document sample `.cursor/mcp.json` and Claude Desktop `claude_desktop_config.json` configuration blocks to showcase one-click IDE setup.
-
-### 2. CI/CD & Automated Verification
-- [x] **GitHub Actions Workflow (`.github/workflows/ci.yml`):** Run the 25 automated tests, token efficiency benchmark, and code linting across Linux, macOS, and Windows on every push/PR.
-- [x] **Build Status Badge:** Add a dynamic GitHub Actions workflow status badge at the top of the README.
-- [x] **PyPI Packaging Metadata:** Complete author name, email, repository URLs, and topic classifiers in `pyproject.toml`.
-
-### 3. Production Deployment & Distribution
-- [x] **Production Dockerfile:** Create a multi-stage, lightweight container image (`python:3.11-slim`) for running the living-docs MCP server over SSE (`0.0.0.0:8000`).
-- [x] **Docker Compose Example:** Add a sample `docker-compose.yml` for running the documentation engine alongside agentic workflows.
-- [x] **Static Edge Export Hook:** Add a deployment script/action to push `/llms.txt`, `/llms-small.txt`, and `/llms-full.txt` directly to Cloudflare Pages, Vercel, or AWS S3.
+- Author: Brandon Elmore
+- Repository: [BB00GIE/-LLM-Optimized-Living-Documentation-Engine](https://github.com/BB00GIE/-LLM-Optimized-Living-Documentation-Engine)
