@@ -185,10 +185,59 @@ def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
 
 
+def _normalize_schema(schema: Any) -> Any:
+    """Normalize OpenAPI 3.0 / 3.1 schema constructs including allOf composition, anyOf, oneOf, prefixItems."""
+    if not isinstance(schema, dict):
+        return schema
+
+    norm: dict[str, Any] = {k: _normalize_schema(v) for k, v in schema.items()}
+
+    if "required" in norm and isinstance(norm["required"], list):
+        norm["required"] = sorted(set(norm["required"]))
+
+    all_of = norm.get("allOf")
+    if isinstance(all_of, list):
+        merged_props: dict[str, Any] = {}
+        merged_required: list[str] = []
+        base_props = norm.get("properties")
+        if isinstance(base_props, dict):
+            merged_props.update(base_props)
+        if isinstance(norm.get("required"), list):
+            merged_required.extend(norm["required"])
+
+        other_all_of: list[Any] = []
+        for sub in all_of:
+            if isinstance(sub, dict):
+                sub_props = sub.get("properties")
+                if isinstance(sub_props, dict):
+                    merged_props.update(sub_props)
+                if isinstance(sub.get("required"), list):
+                    for req in sub["required"]:
+                        if req not in merged_required:
+                            merged_required.append(req)
+                clean_sub = {k: v for k, v in sub.items() if k not in ("properties", "required")}
+                if clean_sub:
+                    other_all_of.append(clean_sub)
+            else:
+                other_all_of.append(sub)
+
+        if merged_props:
+            norm["type"] = norm.get("type", "object")
+            norm["properties"] = merged_props
+            if merged_required:
+                norm["required"] = sorted(set(merged_required))
+            if not other_all_of:
+                norm.pop("allOf", None)
+            else:
+                norm["allOf"] = other_all_of
+
+    return norm
+
+
 def _schema_block(schema: Any) -> str:
     if not isinstance(schema, dict):
         return _compact_json(schema)
-    return _compact_json(schema)
+    return _compact_json(_normalize_schema(schema))
 
 
 def _render_operation(

@@ -520,3 +520,50 @@ paths:
     assert '"id"' in full
     assert '"required"' in full
 
+
+def test_openapi_schema_composition_allof(tmp_path):
+    spec_file = tmp_path / "composed.yaml"
+    spec_file.write_text(
+        """
+openapi: "3.1.0"
+info:
+  title: Composed API
+  version: "1.0.0"
+paths:
+  /items:
+    post:
+      summary: Create composed item
+      requestBody:
+        content:
+          application/json:
+            schema:
+              allOf:
+                - type: object
+                  required:
+                    - id
+                  properties:
+                    id:
+                      type: string
+                - type: object
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                    description:
+                      type: string
+      responses:
+        '200':
+          description: OK
+""",
+        encoding="utf-8",
+    )
+
+    out = tmp_path / "out_composed"
+    manifest = build_artifacts(output_directory=out, openapi_files=[spec_file])
+    assert len(manifest["sections"]) == 1
+    full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    assert '"required":["id","name"]' in full
+    assert '"description"' in full
+
+
