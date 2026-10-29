@@ -373,14 +373,14 @@ def generate_typescript_stubs(
         docstring_summary = op.summary or f"{op.method} {op.path}"
 
         method_lines = [
-            f"  /**",
+            "  /**",
             f"   * {op.method} {op.path} — {docstring_summary}",
-            f"   */",
+            "   */",
             f"  async {ts_method_name}({', '.join(method_args)}): Promise<{resp_type}> {{",
             f"    const url = `${{this.baseUrl}}{ts_path}`;",
-            f"    // Zero-dependency execution stub; implement with global fetch()",
+            "    // Zero-dependency execution stub; implement with global fetch()",
             f"    return {{}} as {resp_type};",
-            f"  }}",
+            "  }",
         ]
         methods_code.append("\n".join(method_lines))
 

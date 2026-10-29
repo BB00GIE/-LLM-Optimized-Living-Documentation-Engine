@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from living_docs.engine import build_artifacts
-from living_docs.stubs import export_client_stubs, generate_python_stubs, generate_typescript_stubs, _parse_endpoints_from_sections
+from living_docs.stubs import export_client_stubs
 
 
 def test_stubs_generation_python(tmp_path: Path):
