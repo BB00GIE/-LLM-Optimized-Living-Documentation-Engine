@@ -1,0 +1,44 @@
+name: Feature Request
+description: Propose a new feature, adapter, or enhancement for the documentation engine
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest an idea or new capability for the living documentation engine.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Motivation
+      description: Is your feature request related to a problem or limitation? Please describe clearly.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution / Feature
+      description: Describe the solution you'd like to see implemented.
+      placeholder: Add an adapter for... / Extend MCP tool schema to...
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you've explored.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Subsystem
+      options:
+        - Ingestion (OpenAPI / Markdown / Stack Adapters)
+        - AST Parser (Python / TypeScript)
+        - MCP Server Runtime (stdio / SSE / FastMCP)
+        - Client SDK Exporters (TypedDict / TypeScript stubs)
+        - Search & Embeddings (BM25 / Vector RRF)
+        - Verification & Benchmarks
+        - CLI / Tooling
+    validations:
+      required: true
