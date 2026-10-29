@@ -90,6 +90,12 @@ def main() -> None:
     verify_cmd.add_argument("--spec", type=Path, default=Path("examples/posthog_production_spec.yaml"), help="OpenAPI spec path")
     verify_cmd.add_argument("--output", type=Path, default=Path("verification_results"), help="Results directory")
 
+    stubs_cmd = commands.add_parser("export-stubs", help="Export typed client SDK stubs (Python or TypeScript) from documentation index")
+    stubs_cmd.add_argument("--index", type=Path, default=Path("build/docs-index.json"), help="Path to docs-index.json")
+    stubs_cmd.add_argument("--lang", choices=["python", "typescript"], required=True, help="Target programming language")
+    stubs_cmd.add_argument("--output", type=Path, default=None, help="Output file path (prints to stdout if omitted)")
+    stubs_cmd.add_argument("--client-name", default=None, help="Custom name for generated client class")
+
     args = parser.parse_args()
     if args.command == "build":
         manifest = build_artifacts(
@@ -195,6 +201,19 @@ def main() -> None:
         print(f"  CSV Metrics Log:      {summary['csv_file']}")
         print(f"  JSON Full Dump:       {summary['json_file']}")
         print("========================================================\n")
+    elif args.command == "export-stubs":
+        from living_docs.stubs import export_client_stubs
+
+        code = export_client_stubs(
+            index_path=args.index,
+            lang=args.lang,
+            output_path=args.output,
+            client_name=args.client_name,
+        )
+        if args.output:
+            print(f"Exported {args.lang} typed client stubs to {args.output}")
+        else:
+            print(code)
 
 
 if __name__ == "__main__":
