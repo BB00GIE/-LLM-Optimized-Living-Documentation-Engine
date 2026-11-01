@@ -143,15 +143,33 @@ Building documentation for autonomous agents is fundamentally different from des
 
 ## Minimal Example: docs://manifest (illustrative)
 
+```json
 {
-  "uri": "docs://manifest",
   "version": "1.0.0",
+  "project": "PostHog API",
   "total_tokens": 42150,
   "sections": [
-    { "id": "query-api", "title": "HogQL Query API", "path": "/api/query", "tokens": 1240 },
-    { "id": "capture-api", "title": "Event Capture API", "path": "/api/capture", "tokens": 850 }
+    {
+      "id": "query-api",
+      "title": "HogQL Query API",
+      "path": "/api/query",
+      "tokens": 1240,
+      "kind": "api",
+      "method": "POST",
+      "description": "Execute HogQL queries against analytics events"
+    },
+    {
+      "id": "capture-api",
+      "title": "Event Capture API",
+      "path": "/api/capture",
+      "tokens": 850,
+      "kind": "api",
+      "method": "POST",
+      "description": "Ingest single or batch events into PostHog"
+    }
   ]
 }
+```
 
 ## Current retrieval and tokenization
 
