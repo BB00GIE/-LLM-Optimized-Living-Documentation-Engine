@@ -122,6 +122,25 @@ Sources (OpenAPI, Markdown, Python & TS ASTs) → Ingestion → IR → Transform
 - Deterministic: preserve complete schema units so returned context is unambiguous.
 - Dual delivery: static manifests for single-shot contexts + dynamic MCP tools for interactive agent workflows.
 
+## Engineering Decisions & The "Scars" of Building for Agents
+
+Building documentation for autonomous agents is fundamentally different from designing human docs:
+
+1. **Why Hybrid Search (FTS5 + Dense Embeddings)?**
+   - *Failure Mode:* Pure vector RAG often returns semantically related prose instead of exact syntax anchors.
+   - *Solution:* SQLite FTS5 ensures exact symbol and method matches (e.g., parameter keys, function names) are retrieved deterministically with zero semantic drift.
+
+2. **Resolving OpenAPI `$ref` and `allOf` at Ingestion:**
+   - *Failure Mode:* Agents hallucinate arguments when multi-file relative references break or nested inheritance is omitted.
+   - *Solution:* Full pre-compilation and resolution of all relative schemas into cohesive, token-bounded client stubs.
+
+3. **AST Pruning over Raw Web Dumps:**
+   - *Failure Mode:* Raw documentation can waste 60–80% of an LLM's context window on layout elements and conversational filler.
+   - *Solution:* Language-level AST extraction that retains only executable signatures, parameter types, and constraints.
+
+4. **Continuous Evals on Token Density:**
+   - Evaluated across retrieval runs and logged to SQLite/CSV to verify token efficiency and retrieval precision.
+
 ## Minimal Example: docs://manifest (illustrative)
 
 {
